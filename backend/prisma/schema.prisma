@@ -12,6 +12,12 @@ datasource db {
   provider = "postgresql"
 }
 
+enum status {
+  confirmed
+  pending
+  declined
+}
+
 enum days {
   monday
   tuesday
@@ -78,6 +84,7 @@ model Bookings {
   email String
   phone_number String
   ToS Boolean
+  status status
 
   service Service @relation(fields: [serviceId], references: [id])
   user   User   @relation(fields: [userId], references: [id])
@@ -97,6 +104,7 @@ model Service {
   name String
   description String?
   duration Int
+  price Float
 
   booking Bookings[]
 

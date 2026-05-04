@@ -20,16 +20,18 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/main.css'],
 
+  site: {
+    name: 'Scheduling App'
+  },
+
   routeRules: {
-    '/': { prerender: true }
+    '/': { prerender: true },
+    '/admin': { robots: false },
+    '/admin/**': { robots: false }
   },
 
   compatibilityDate: '2026-06-30',
 
-  site: {
-    name: 'Scheduling App'
-  },
-  
   eslint: {
     config: {
       stylistic: {

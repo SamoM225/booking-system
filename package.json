@@ -4,12 +4,17 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "predev": "docker compose -f backend/docker-compose.yml up -d",
+    "dev": "node scripts/dev.mjs",
+    "dev:be": "node scripts/dev.mjs be",
+    "dev:fe": "node scripts/dev.mjs fe",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "services:up": "docker compose -f backend/docker-compose.yml up -d",
+    "services:down": "docker compose -f backend/docker-compose.yml down",
+    "db:migrate": "npm run db:migrate --prefix backend"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "dependencies": {
-
-  }
+  "dependencies": {}
 }
