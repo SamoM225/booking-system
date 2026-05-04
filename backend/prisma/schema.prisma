@@ -1,0 +1,104 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum days {
+  monday
+  tuesday
+  wednesday
+  thursday
+  friday
+  saturday
+  sunday
+}
+
+enum AvailabilityStatus {
+  available
+  unavailable
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      String   @default("user")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userAvailability userAvailability[]
+  bookings  Bookings[]
+
+  @@map("users")
+}
+
+
+// By default, all dates are available, which reduces database storage
+// This model only says, in what date is the whole company closed
+model Unavailable {
+  id Int @id @default(autoincrement())
+  date DateTime
+}
+
+// This will be repeated, for user selected, get his availability, and repeat every week.
+// If user is not available, exclude dates he is not available
+model userAvailability {
+  id Int @id @default(autoincrement())
+  userId String
+  from DateTime?
+  to DateTime?
+  day days?
+
+  // Time range in HH:mm-HH:mm format, for example: 08:00-17:00
+  hours String? @db.VarChar(11)
+
+  user User @relation(fields: [userId], references: [id])
+  status AvailabilityStatus @default(available)
+}
+
+
+// Actual 
+model Bookings {
+  id Int @id @default(autoincrement())
+  serviceId Int
+  userId String
+  date DateTime
+  first_name String
+  last_name String
+  email String
+  phone_number String
+  ToS Boolean
+
+  service Service @relation(fields: [serviceId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+}
+
+model Category {
+  id Int @id @default(autoincrement())
+  name String
+
+  service Service[]
+}
+
+model Service {
+  id Int @id @default(autoincrement())
+  categoryId Int
+  name String
+  description String?
+  duration Int
+
+  booking Bookings[]
+
+  category Category @relation(fields: [categoryId], references: [id])
+}
