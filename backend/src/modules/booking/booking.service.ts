@@ -1,11 +1,17 @@
 import { prisma } from '../../db/prisma.js';
 import type { CreateBookingInput } from './booking.schema.js';
+import { assertBookable, toDate } from './scheduling.js';
 
-export function createBooking(data: CreateBookingInput) {
+// Public booking: the chosen time must be one of the offered slots
+export async function createBooking(data: CreateBookingInput) {
+    const { date, time, ...rest } = data;
+    await assertBookable({ userId: data.userId, serviceId: data.serviceId, date, time, strict: true });
+
     return prisma.bookings.create({
         data: {
-            ...data,
-            date: new Date(data.datetime)
+            ...rest,
+            date: toDate(date, time),
+            status: 'confirmed'
         }
     })
 }

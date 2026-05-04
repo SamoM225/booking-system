@@ -3,7 +3,7 @@ import { prisma } from "../../db/prisma.js";
 import { validateBody } from "../../middleware/body-middleware.js";
 import brypt from 'bcrypt';
 import { createBooking, listBookings } from "./booking.service.js";
-import { CreateBookingInput } from "./booking.schema.js";
+import { createBookingSchema, type CreateBookingInput } from "./booking.schema.js";
 
 export const bookingRouter = Router();
 
@@ -25,7 +25,7 @@ bookingRouter.get('/bookings', async (req, res) => {
     res.json(bookings);
 });
 
-bookingRouter.post('/bookings', async (req, res) => {
+bookingRouter.post('/bookings', validateBody(createBookingSchema), async (req, res) => {
     const data: CreateBookingInput = req.body;
 
     const booking = await createBooking(data);
