@@ -2,6 +2,8 @@ import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import { getCurrentUser, getUser, logout, registerUser } from './auth.service.js';
 import { prisma } from '../../db/prisma.js';
+import { validateBody } from '../../middleware/body-middleware.js';
+import { createUserSchema } from '../users/users.schema.js';
 
 export const authRouter = Router();
 
@@ -29,10 +31,10 @@ authRouter.get('/me', async (req, res) => {
     res.json({ id: user.id, email: user.email, name: user.name, role: user.role });
 })
 
-authRouter.post('/register', async (req, res) => {
+authRouter.post('/register', validateBody(createUserSchema), async (req, res) => {
     const hashedPassword = await bcrypt.hash(req.body.password, 10);
     const newUser = await registerUser({ email: req.body.email, name: req.body.name, password: hashedPassword });
-    res.json({ message: "User registered successfully", userId: newUser.id });
+    res.status(201).json({ message: "User registered successfully", userId: newUser.id });
 })
 
 authRouter.post('/logout', (req, res) => {
