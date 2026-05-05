@@ -1,5 +1,5 @@
 // Promote an existing user to admin: npm run admin:make -- user@example.com
-import { setAdmin } from '../modules/administration/admin.service.js';
+import { setAdmin } from '../modules/users/users.service.js';
 
 const email = process.argv[2];
 if (!email) {
