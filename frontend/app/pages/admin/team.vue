@@ -2,7 +2,7 @@
 import type { AdminMember } from '~/types/admin'
 
 definePageMeta({ layout: 'admin' })
-const { data, saveMember } = useAdminDemo()
+const { data, saveMember, inviteMember } = useAdmin()
 const search = ref('')
 const open = ref(false)
 const error = ref('')
@@ -13,7 +13,7 @@ function edit(member?: AdminMember) {
   error.value = ''
   open.value = true
 }
-function submit() {
+async function submit() {
   const value = { ...draft.value, name: draft.value.name.trim(), email: draft.value.email.trim().toLowerCase() }
   if (!value.name || data.value.members.some(item => item.id !== value.id && item.email.toLowerCase() === value.email)) {
     error.value = 'Enter a name and a unique email address.'
@@ -24,8 +24,13 @@ function submit() {
     error.value = 'Keep at least one active administrator in the team.'
     return
   }
-  saveMember(value)
-  open.value = false
+  try {
+    if (value.id) await saveMember(value)
+    else await inviteMember({ name: value.name, email: value.email, role: value.role })
+    open.value = false
+  } catch (e) {
+    error.value = apiErrorMessage(e)
+  }
 }
 </script>
 
@@ -116,7 +121,7 @@ function submit() {
     <UModal
       v-model:open="open"
       :title="draft.id ? 'Edit team member' : 'Add team member'"
-      description="This preview creates a local profile only. No invitation email is sent."
+      :description="draft.id ? 'Update this team member’s details and access.' : 'We will invite this person to join the team.'"
     >
       <template #body>
         <form
@@ -168,7 +173,7 @@ function submit() {
               variant="outline"
               @click="open = false"
             /><UButton
-              label="Save team member"
+              :label="draft.id ? 'Save team member' : 'Send invitation'"
               type="submit"
             />
           </div>

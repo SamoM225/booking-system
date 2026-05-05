@@ -8,7 +8,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
-    if(!req.session.userId || req.session.role !== 'ADMIN') {
+    if(!req.session.userId || req.session.role !== 'admin') {
         return res.status(403).json({ message: "Forbidden" });
     }
     next()

@@ -1,5 +1,19 @@
 <script setup lang="ts">
 const route = useRoute()
+const { loaded, load } = useAdmin()
+const { logout, user } = useAuth()
+const loadError = ref('')
+onMounted(async () => {
+  try {
+    await load()
+  } catch (e) {
+    loadError.value = apiErrorMessage(e, 'Could not load data from the server.')
+  }
+})
+async function signOut() {
+  await logout()
+  await navigateTo('/login')
+}
 const { colorMode, toggle } = useThemeTransition()
 const links = [
   { label: 'Overview', to: '/admin', icon: 'i-lucide-layout-dashboard' },
@@ -70,9 +84,9 @@ useSeoMeta({ title: () => `${current.value} · Booking Admin` })
             AD
           </div><div>
             <p class="text-sm font-semibold">
-              Admin workspace
+              {{ user?.name || 'Admin workspace' }}
             </p><p class="text-xs text-muted">
-              Design preview
+              Administrator
             </p>
           </div>
         </div>
@@ -91,12 +105,7 @@ useSeoMeta({ title: () => `${current.value} · Booking Admin` })
           class="flex items-center gap-2 font-bold lg:hidden"
         ><AppLogo />Booking</NuxtLink>
         <div class="flex items-center gap-2 sm:gap-4">
-          <UBadge
-            label="Demo workspace"
-            color="warning"
-            variant="subtle"
-            class="hidden sm:inline-flex"
-          /><UButton
+          <UButton
             to="/"
             label="View website"
             trailing-icon="i-lucide-arrow-up-right"
@@ -110,6 +119,13 @@ useSeoMeta({ title: () => `${current.value} · Booking Admin` })
             color="neutral"
             class="rounded-full"
             @click="toggle($event)"
+          /><UButton
+            icon="i-lucide-log-out"
+            aria-label="Sign out"
+            variant="ghost"
+            color="neutral"
+            class="rounded-full"
+            @click="signOut"
           />
         </div>
       </header>
@@ -133,16 +149,19 @@ useSeoMeta({ title: () => `${current.value} · Booking Admin` })
         id="admin-main"
         class="mx-auto max-w-[1500px] px-5 py-7 sm:px-8 xl:px-10 xl:py-9"
       >
-        <div
-          role="note"
-          class="mb-7 flex items-start gap-2.5 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-xs leading-5 text-toned"
+        <UAlert
+          v-if="loadError"
+          color="error"
+          variant="subtle"
+          :description="loadError"
+        />
+        <slot v-else-if="loaded" />
+        <p
+          v-else
+          class="py-20 text-center text-sm text-muted"
         >
-          <UIcon
-            name="i-lucide-info"
-            class="mt-0.5 size-4 shrink-0 text-primary"
-          /><p><span class="font-semibold text-highlighted">Preview mode.</span> All data is fictional. Changes stay in this session and reset on refresh. Backend connection and sign-in are not enabled.</p>
-        </div>
-        <slot />
+          Loading…
+        </p>
         <footer class="mt-10 flex flex-wrap justify-between gap-2 border-t border-default pt-5 text-xs text-muted">
           <span>Booking · Administration</span><span>Made for a smoother working day.</span>
         </footer>

@@ -13,6 +13,8 @@ import { userRouter } from './modules/users/users.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { bookingRouter } from './modules/booking/booking.routes.js';
 import { adminRouter } from './modules/administration/admin.routes.js';
+import { publicRouter } from './modules/public/public.routes.js';
+import { HttpError } from './lib/http-error.js';
 
 export function createApp() {
     const app = express();
@@ -41,6 +43,19 @@ export function createApp() {
     app.use('/auth', authRouter);
     app.use('/bookings', bookingRouter);
     app.use('/admin', adminRouter);
+    app.use('/public', publicRouter);
+
+    // Business rule errors (HttpError) and unique constraint violations as JSON
+    app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+        if (err instanceof HttpError) {
+            return res.status(err.status).json({ message: err.message });
+        }
+        if ((err as { code?: string })?.code === 'P2002') {
+            return res.status(409).json({ message: 'Already exists' });
+        }
+        console.error(err);
+        res.status(500).json({ message: 'Internal server error' });
+    });
 
 
     return app;

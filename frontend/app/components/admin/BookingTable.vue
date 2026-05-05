@@ -4,7 +4,7 @@ import { formatAdminDate, statusColors, statusLabels } from '~/utils/admin'
 
 defineProps<{ bookings: AdminBooking[] }>()
 defineEmits<{ edit: [booking: AdminBooking] }>()
-const { serviceName, memberName } = useAdminDemo()
+const { serviceName, memberName } = useAdmin()
 </script>
 
 <template>

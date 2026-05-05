@@ -4,7 +4,7 @@ import { statusLabels } from '~/utils/admin'
 
 definePageMeta({ layout: 'admin' })
 const route = useRoute()
-const { data } = useAdminDemo()
+const { data } = useAdmin()
 const search = ref('')
 const status = ref(typeof route.query.status === 'string' && route.query.status in statusLabels ? route.query.status : 'all')
 const worker = ref('all')

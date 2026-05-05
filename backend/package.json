@@ -10,7 +10,9 @@
     "db:migrate": "prisma migrate dev --config prisma7.config.ts",
     "db:deploy": "prisma migrate deploy --config prisma7.config.ts",
     "db:generate": "prisma generate --config prisma7.config.ts",
-    "db:studio": "prisma studio --config prisma7.config.ts"
+    "db:studio": "prisma studio --config prisma7.config.ts",
+    "admin:make": "tsx src/scripts/make-admin.ts",
+    "db:seed": "tsx src/scripts/seed.ts"
   },
   "keywords": [],
   "author": "",

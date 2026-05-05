@@ -3,7 +3,7 @@ import type { AdminBooking } from '~/types/admin'
 import { formatAdminDate, shiftDate } from '~/utils/admin'
 
 definePageMeta({ layout: 'admin' })
-const { data, memberName } = useAdminDemo()
+const { data, memberName } = useAdmin()
 const editorOpen = ref(false)
 const selected = ref<AdminBooking | null>(null)
 const selectedDate = ref(data.value.today)

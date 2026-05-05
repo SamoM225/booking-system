@@ -1,9 +1,46 @@
 <script setup lang="ts">
 const store = useBookingStore()
-const { category, workerLabel, date, time, isComplete } = storeToRefs(store)
+const details = usePersonalDetailsStore()
+const api = useApi()
+const toast = useToast()
+const { serviceLabel, serviceId, worker, workerLabel, date, time, isComplete } = storeToRefs(store)
+const submitting = ref(false)
+
+const detailsComplete = computed(() =>
+  Boolean(details.first_name.trim() && details.last_name.trim() && details.email.trim() && details.phone.trim() && details.agreeToTerms)
+)
+
+async function confirm() {
+  submitting.value = true
+  try {
+    await api('/bookings/bookings', {
+      method: 'POST',
+      body: {
+        first_name: details.first_name.trim(),
+        last_name: details.last_name.trim(),
+        email: details.email.trim(),
+        phone_number: details.phone.trim(),
+        ToS: details.agreeToTerms,
+        note: details.description,
+        date: date.value!.toString(),
+        time: time.value,
+        serviceId: serviceId.value,
+        userId: worker.value
+      }
+    })
+    toast.add({ title: 'Booking confirmed', description: 'See you soon!', icon: 'i-lucide-circle-check', color: 'success' })
+    store.reset()
+    Object.assign(details, { first_name: '', last_name: '', email: '', phone: '', description: '', agreeToTerms: false })
+  } catch (e) {
+    toast.add({ title: 'Booking failed', description: apiErrorMessage(e), icon: 'i-lucide-circle-alert', color: 'error' })
+    store.loadTimes()
+  } finally {
+    submitting.value = false
+  }
+}
 
 const summaryItems = computed(() => [
-  { label: 'Service', value: category.value, icon: 'i-lucide-sparkles' },
+  { label: 'Service', value: serviceLabel.value, icon: 'i-lucide-sparkles' },
   { label: 'Specialist', value: workerLabel.value, icon: 'i-lucide-user-round' },
   { label: 'Date', value: date.value?.toString(), icon: 'i-lucide-calendar-days' },
   { label: 'Time', value: time.value, icon: 'i-lucide-clock-3' }
@@ -56,12 +93,13 @@ const summaryItems = computed(() => [
       <UButton
         block
         size="lg"
-        :disabled="!isComplete"
+        :disabled="!isComplete || !detailsComplete"
+        :loading="submitting"
         trailing-icon="i-lucide-arrow-right"
         class="mt-5 justify-center"
-        @click="store.reset()"
+        @click="confirm"
       >
-        {{ isComplete ? 'Confirm booking' : 'Complete all steps' }}
+        {{ isComplete && detailsComplete ? 'Confirm booking' : 'Complete all steps' }}
       </UButton>
 
       <p class="flex items-center justify-center gap-1.5 text-center text-xs text-muted">

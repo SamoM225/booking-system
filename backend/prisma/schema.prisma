@@ -16,6 +16,8 @@ enum status {
   confirmed
   pending
   declined
+  completed
+  cancelled
 }
 
 enum days {
@@ -39,11 +41,15 @@ model User {
   name      String
   password  String
   role      String   @default("user")
+  active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   userAvailability userAvailability[]
   bookings  Bookings[]
+
+  // Services this specialist offers. A specialist with no services offers all of them.
+  services  Service[]
 
   @@map("users")
 }
@@ -54,6 +60,7 @@ model User {
 model Unavailable {
   id Int @id @default(autoincrement())
   date DateTime
+  reason String @default("")
 }
 
 // This will be repeated, for user selected, get his availability, and repeat every week.
@@ -84,6 +91,7 @@ model Bookings {
   email String
   phone_number String
   ToS Boolean
+  note String @default("")
   status status
 
   service Service @relation(fields: [serviceId], references: [id])
@@ -93,7 +101,7 @@ model Bookings {
 
 model Category {
   id Int @id @default(autoincrement())
-  name String
+  name String @unique
 
   service Service[]
 }
@@ -104,9 +112,11 @@ model Service {
   name String
   description String?
   duration Int
-  price Float
+  price Float @default(0)
+  active Boolean @default(true)
 
   booking Bookings[]
+  users User[]
 
   category Category @relation(fields: [categoryId], references: [id])
 }
