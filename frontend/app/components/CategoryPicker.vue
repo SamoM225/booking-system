@@ -4,15 +4,18 @@ import { getLocalTimeZone, today } from '@internationalized/date'
 
 const store = useBookingStore()
 // storeToRefs keeps state/getters reactive when destructured; plain data & actions come straight off the store.
-const { category, worker, time, date, workerLabel, isComplete } = storeToRefs(store)
-const { categories, workers, times } = store
+const { categories, categoryId, categoryServices, serviceId, serviceLabel, workers, worker, times, loadingTimes, time, date, workerLabel, isComplete } = storeToRefs(store)
+
+// Categories and services are loaded once at init (server-side), the user only picks from them
+await callOnce('booking-catalog', () => store.loadCatalog().catch(() => {}))
 
 const minDate = today(getLocalTimeZone()) as unknown as NonNullable<CalendarProps['minValue']>
 
-const showWorker = computed(() => Boolean(category.value))
-const showDate = computed(() => Boolean(category.value && worker.value))
-const showTime = computed(() => Boolean(category.value && worker.value && date.value))
-const showPersonalDetails = computed(() => Boolean(category.value && worker.value && date.value && time.value))
+const showService = computed(() => Boolean(categoryId.value))
+const showWorker = computed(() => Boolean(serviceId.value))
+const showDate = computed(() => Boolean(serviceId.value && worker.value))
+const showTime = computed(() => Boolean(serviceId.value && worker.value && date.value))
+const showPersonalDetails = computed(() => Boolean(serviceId.value && worker.value && date.value && time.value))
 </script>
 
 <template>
@@ -25,14 +28,38 @@ const showPersonalDetails = computed(() => Boolean(category.value && worker.valu
       <div class="flex flex-wrap gap-3">
         <button
           v-for="item in categories"
-          :key="item"
+          :key="item.id"
           type="button"
-          :aria-pressed="category === item"
+          :aria-pressed="categoryId === item.id"
           class="min-w-32 flex-1 cursor-pointer rounded-2xl bg-default p-4 text-sm font-medium shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-3 focus-visible:outline-primary/30"
-          :class="category === item ? 'bg-primary text-white shadow-primary/20' : 'text-default'"
-          @click="category = item"
+          :class="categoryId === item.id ? 'bg-primary text-white shadow-primary/20' : 'text-default'"
+          @click="categoryId = item.id"
         >
-          {{ item }}
+          {{ item.name }}
+        </button>
+      </div>
+    </fieldset>
+
+    <fieldset v-if="showService">
+      <legend class="mb-3 flex items-center gap-3 text-sm font-medium text-default">
+        <span class="flex size-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-white shadow-md shadow-primary/25">2</span>
+        Service
+      </legend>
+      <div class="flex flex-wrap gap-3">
+        <button
+          v-for="item in categoryServices"
+          :key="item.id"
+          type="button"
+          :aria-pressed="serviceId === item.id"
+          class="min-w-40 flex-1 cursor-pointer rounded-2xl bg-default p-4 text-left text-sm font-medium shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-3 focus-visible:outline-primary/30"
+          :class="serviceId === item.id ? 'bg-primary text-white shadow-primary/20' : 'text-default'"
+          @click="serviceId = item.id"
+        >
+          <span class="block">{{ item.name }}</span>
+          <span
+            class="mt-1 block text-xs font-normal"
+            :class="serviceId === item.id ? 'text-white/80' : 'text-muted'"
+          >{{ item.duration }} min<template v-if="item.price"> · {{ item.price }} €</template></span>
         </button>
       </div>
     </fieldset>
@@ -41,7 +68,7 @@ const showPersonalDetails = computed(() => Boolean(category.value && worker.valu
       v-if="showWorker"
     >
       <legend class="mb-3 flex items-center gap-3 text-sm font-medium text-default">
-        <span class="flex size-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-white shadow-md shadow-primary/25">2</span>
+        <span class="flex size-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-white shadow-md shadow-primary/25">3</span>
         Worker
       </legend>
       <div class="flex flex-wrap gap-3">
@@ -64,7 +91,7 @@ const showPersonalDetails = computed(() => Boolean(category.value && worker.valu
       class="space-y-3"
     >
       <h2 class="flex items-center gap-3 text-sm font-medium">
-        <span class="flex size-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-white shadow-md shadow-primary/25">3</span>
+        <span class="flex size-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-white shadow-md shadow-primary/25">4</span>
         Date & time
       </h2>
 
@@ -78,8 +105,20 @@ const showPersonalDetails = computed(() => Boolean(category.value && worker.valu
           <h3 class="font-semibold text-highlighted">
             Select a time
           </h3>
+          <p
+            v-if="showTime && loadingTimes"
+            class="text-sm text-muted"
+          >
+            Loading times…
+          </p>
+          <p
+            v-else-if="showTime && !times.length"
+            class="text-sm text-muted"
+          >
+            No free times on this day. Try another date or specialist.
+          </p>
           <div
-            v-if="showTime"
+            v-else-if="showTime"
             class="grid grid-cols-2 gap-3"
           >
             <button
@@ -101,13 +140,13 @@ const showPersonalDetails = computed(() => Boolean(category.value && worker.valu
         v-if="isComplete"
         class="rounded-xl bg-primary/10 px-4 py-3 text-sm font-medium text-primary"
       >
-        Selected: {{ category }} with {{ workerLabel }} on {{ date?.toString() }} at {{ time }}
+        Selected: {{ serviceLabel }} with {{ workerLabel }} on {{ date?.toString() }} at {{ time }}
       </p>
       <p
         v-else
         class="rounded-xl bg-default px-4 py-3 text-sm font-medium text-muted shadow-sm"
       >
-        {{ !category ? 'Pick a category to start.' : !worker ? 'Now choose a worker.' : !date ? 'Select a date.' : 'Pick a time to finish.' }}
+        {{ !categoryId ? 'Pick a category to start.' : !serviceId ? 'Choose a service.' : !worker ? 'Now choose a worker.' : !date ? 'Select a date.' : 'Pick a time to finish.' }}
       </p>
     </section>
     <PersonalDetails v-if="showPersonalDetails" />

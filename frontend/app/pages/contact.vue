@@ -8,6 +8,7 @@ useSeoMeta({
 })
 
 const toast = useToast()
+const api = useApi()
 
 const subjects = [
   'Booking support',
@@ -55,7 +56,13 @@ const details = [
   }
 ]
 
-function onSubmit(_event: FormSubmitEvent<Schema>) {
+async function onSubmit(event: FormSubmitEvent<Schema>) {
+  try {
+    await api('/public/contact', { method: 'POST', body: event.data })
+  } catch (e) {
+    toast.add({ title: 'Message not sent', description: apiErrorMessage(e), icon: 'i-lucide-circle-alert', color: 'error' })
+    return
+  }
   toast.add({
     title: 'Message sent',
     description: 'Thanks for reaching out. We will get back to you shortly.',

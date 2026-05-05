@@ -7,7 +7,7 @@ const { first_name, last_name, email, phone, description, agreeToTerms } = store
   <section class="space-y-5 pt-2">
     <div>
       <h2 class="flex items-center gap-3 text-sm font-medium">
-        <span class="flex size-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-white shadow-md shadow-primary/25">4</span>
+        <span class="flex size-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-white shadow-md shadow-primary/25">5</span>
         Personal details
       </h2>
       <p class="ml-11 mt-1 text-sm text-muted">
