@@ -4,7 +4,7 @@ import { statusLabels } from '~/utils/admin'
 
 const open = defineModel<boolean>('open', { default: false })
 const props = defineProps<{ booking?: AdminBooking | null }>()
-const { data, saveBooking } = useAdminDemo()
+const { data, saveBooking } = useAdmin()
 const error = ref('')
 const draft = ref<AdminBooking>()
 const statuses = Object.entries(statusLabels).map(([value, label]) => ({ value: value as BookingStatus, label }))
@@ -20,7 +20,7 @@ watch(open, (value) => {
         date: data.value.today, time: '09:00', firstName: '', lastName: '', email: '', phone: '', note: '', status: 'confirmed'
       }
 })
-function submit() {
+async function submit() {
   if (!draft.value) return
   const value = { ...draft.value, firstName: draft.value.firstName.trim(), lastName: draft.value.lastName.trim(), email: draft.value.email.trim(), phone: draft.value.phone.trim() }
   if (!value.firstName || !value.lastName || !value.serviceId || !value.userId || !value.phone) {
@@ -43,8 +43,12 @@ function submit() {
     error.value = 'This specialist already has an overlapping booking. Choose another time or specialist.'
     return
   }
-  saveBooking(value)
-  open.value = false
+  try {
+    await saveBooking(value)
+    open.value = false
+  } catch (e) {
+    error.value = apiErrorMessage(e)
+  }
 }
 </script>
 
@@ -52,7 +56,7 @@ function submit() {
   <UModal
     v-model:open="open"
     :title="booking ? `Booking #${booking.id}` : 'New booking'"
-    description="Manage appointment and client details in the demo workspace."
+    description="Manage appointment and client details for your clients."
     :ui="{ content: 'sm:max-w-2xl' }"
   >
     <template #body>

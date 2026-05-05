@@ -4,7 +4,7 @@ import { defaultSchedule, formatAdminDate } from '~/utils/admin'
 
 definePageMeta({ layout: 'admin' })
 const route = useRoute()
-const { data, saveSchedule, nextId, saved } = useAdminDemo()
+const { data, saveSchedule, addClosure: createClosure, removeClosure: deleteClosure } = useAdmin()
 const requested = typeof route.query.member === 'string' ? route.query.member : ''
 const member = ref(data.value.members.some(item => item.id === requested) ? requested : data.value.members[0]?.id ?? '')
 const draft = ref<WorkingDay[]>([])
@@ -27,15 +27,19 @@ function load() {
   error.value = ''
 }
 watch(member, load, { immediate: true })
-function submit() {
+async function submit() {
   if (draft.value.some(day => day.enabled && (!day.open || !day.close || day.open >= day.close))) {
     error.value = 'For each working day, closing time must be later than opening time.'
     return
   }
-  saveSchedule(member.value, draft.value)
-  error.value = ''
+  try {
+    await saveSchedule(member.value, draft.value)
+    error.value = ''
+  } catch (e) {
+    error.value = apiErrorMessage(e)
+  }
 }
-function addClosure() {
+async function addClosure() {
   if (!closureDate.value || !closureReason.value.trim() || data.value.closures.some(item => item.date === closureDate.value)) {
     closureError.value = 'Choose a new date and add a reason for the closure.'
     return
@@ -44,14 +48,21 @@ function addClosure() {
     closureError.value = 'This day has bookings. Reschedule or cancel them before closing the business.'
     return
   }
-  data.value.closures.push({ id: nextId(data.value.closures), date: closureDate.value, reason: closureReason.value.trim() })
-  closureOpen.value = false
-  saved('Closure added')
+  try {
+    await createClosure({ date: closureDate.value, reason: closureReason.value.trim() })
+    closureOpen.value = false
+  } catch (e) {
+    closureError.value = apiErrorMessage(e)
+  }
 }
-function removeClosure() {
-  data.value.closures = data.value.closures.filter(item => item.id !== removing.value)
+async function removeClosure() {
+  if (removing.value === null) return
+  try {
+    await deleteClosure(removing.value)
+  } catch (e) {
+    closureError.value = apiErrorMessage(e)
+  }
   removing.value = null
-  saved('Closure removed')
 }
 function newClosure() {
   closureDate.value = ''

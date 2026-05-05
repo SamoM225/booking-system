@@ -2,7 +2,7 @@
 import type { AdminService } from '~/types/admin'
 
 definePageMeta({ layout: 'admin' })
-const { data, saveService, nextId, saved } = useAdminDemo()
+const { data, saveService, saveCategory } = useAdmin()
 const search = ref('')
 const category = ref(0)
 const open = ref(false)
@@ -11,21 +11,25 @@ const categoryId = ref(0)
 const categoryName = ref('')
 const categoryError = ref('')
 const error = ref('')
-const draft = ref<AdminService>({ id: 0, name: '', description: '', categoryId: 1, duration: 30, active: true })
+const draft = ref<AdminService>({ id: 0, name: '', description: '', categoryId: 1, duration: 30, price: 0, active: true })
 const filtered = computed(() => data.value.services.filter(item => (!category.value || item.categoryId === category.value) && `${item.name} ${item.description}`.toLowerCase().includes(search.value.trim().toLowerCase())))
 const categories = computed(() => data.value.categories.map(item => ({ label: item.name, value: item.id })))
 function edit(service?: AdminService) {
   error.value = ''
-  draft.value = service ? { ...service } : { id: 0, name: '', description: '', categoryId: category.value || categories.value[0]?.value || 0, duration: 30, active: true }
+  draft.value = service ? { ...service } : { id: 0, name: '', description: '', categoryId: category.value || categories.value[0]?.value || 0, duration: 30, price: 0, active: true }
   open.value = true
 }
-function submit() {
+async function submit() {
   if (!draft.value.name.trim() || !draft.value.categoryId || !Number.isInteger(Number(draft.value.duration)) || Number(draft.value.duration) < 5 || Number(draft.value.duration) > 480) {
     error.value = 'Enter a name, category and duration between 5 and 480 minutes.'
     return
   }
-  saveService({ ...draft.value, name: draft.value.name.trim(), duration: Number(draft.value.duration) })
-  open.value = false
+  try {
+    await saveService({ ...draft.value, name: draft.value.name.trim(), duration: Number(draft.value.duration) })
+    open.value = false
+  } catch (e) {
+    error.value = apiErrorMessage(e)
+  }
 }
 function editCategory(id = 0) {
   categoryId.value = id
@@ -33,17 +37,18 @@ function editCategory(id = 0) {
   categoryError.value = ''
   categoryOpen.value = true
 }
-function submitCategory() {
+async function submitCategory() {
   const name = categoryName.value.trim()
   if (!name || data.value.categories.some(item => item.id !== categoryId.value && item.name.toLowerCase() === name.toLowerCase())) {
     categoryError.value = 'Choose a unique category name.'
     return
   }
-  const existing = data.value.categories.find(item => item.id === categoryId.value)
-  if (existing) existing.name = name
-  else data.value.categories.push({ id: nextId(data.value.categories), name })
-  categoryOpen.value = false
-  saved('Category saved')
+  try {
+    await saveCategory({ id: categoryId.value, name })
+    categoryOpen.value = false
+  } catch (e) {
+    categoryError.value = apiErrorMessage(e)
+  }
 }
 </script>
 
