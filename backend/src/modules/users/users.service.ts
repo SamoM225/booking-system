@@ -14,3 +14,16 @@ export async function createUser(input: CreateUserInput) {
         }
     });
 }
+
+export async function setAdmin(email: string) {
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+        throw new Error("User not found");
+    }
+
+    return prisma.user.update({
+        where: { email },
+        data: { role: 'admin' }
+    });
+}

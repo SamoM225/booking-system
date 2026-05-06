@@ -1,9 +1,28 @@
 import type { AdminBooking, AdminCategory, AdminData, AdminMember, AdminService, Closure, WorkingDay } from '~/types/admin'
 
+type Identified = { id: number | string }
+
+const todayInBratislava = () =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Bratislava' }).format(new Date())
+
 const emptyData = (): AdminData => ({
-  today: new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Bratislava' }).format(new Date()),
-  bookings: [], categories: [], services: [], members: [], schedules: {}, closures: []
+  today: todayInBratislava(),
+  bookings: [],
+  categories: [],
+  services: [],
+  members: [],
+  schedules: {},
+  closures: []
 })
+
+function upsert<T extends Identified>(list: T[], item: T) {
+  const index = list.findIndex(entry => entry.id === item.id)
+  if (index < 0) {
+    list.push(item)
+  } else {
+    list[index] = item
+  }
+}
 
 /** Admin data and actions backed by the API. Mutations throw on failure (use apiErrorMessage). */
 export function useAdmin() {
@@ -11,13 +30,22 @@ export function useAdmin() {
   const toast = useToast()
   const data = useState<AdminData>('admin-data', emptyData)
   const loaded = useState('admin-loaded', () => false)
-  const saved = (title: string) => toast.add({ title, icon: 'i-lucide-circle-check', color: 'success' })
-  const serviceName = (id: number) => data.value.services.find(item => item.id === id)?.name ?? 'Unknown service'
-  const memberName = (id: string) => data.value.members.find(item => item.id === id)?.name ?? 'Unknown specialist'
-  const upsert = <T extends { id: number | string }>(list: T[], item: T) => {
-    const index = list.findIndex(entry => entry.id === item.id)
-    if (index < 0) list.push(item)
-    else list[index] = item
+
+  function saved(title: string) {
+    toast.add({ title, icon: 'i-lucide-circle-check', color: 'success' })
+  }
+
+  function serviceName(id: number) {
+    return data.value.services.find(service => service.id === id)?.name ?? 'Unknown service'
+  }
+
+  function memberName(id: string) {
+    return data.value.members.find(member => member.id === id)?.name ?? 'Unknown specialist'
+  }
+
+  /** POST /resource when the item is new, PUT /resource/:id when it already exists. */
+  function save<T>(resource: string, id: number | string | undefined, body: object) {
+    return api<T>(id ? `/admin/${resource}/${id}` : `/admin/${resource}`, { method: id ? 'PUT' : 'POST', body })
   }
 
   async function load() {
@@ -33,49 +61,71 @@ export function useAdmin() {
     loaded.value = true
   }
 
-  async function saveBooking(booking: AdminBooking) {
-    const { id, ...body } = booking
-    const result = await api<AdminBooking>(id ? `/admin/bookings/update/${id}` : '/admin/bookings/create', { method: 'POST', body })
-    upsert(data.value.bookings, result)
+  async function saveBooking({ id, ...body }: AdminBooking) {
+    upsert(data.value.bookings, await save<AdminBooking>('bookings', id, body))
     saved(id ? 'Booking updated' : 'Booking created')
   }
-  async function saveService(service: AdminService) {
-    const { id, ...body } = service
-    const result = await api<AdminService>(id ? `/admin/services/update/${id}` : '/admin/services/create', { method: 'POST', body })
-    upsert(data.value.services, result)
+
+  async function saveService({ id, ...body }: AdminService) {
+    upsert(data.value.services, await save<AdminService>('services', id, body))
     saved('Service saved')
   }
-  async function saveCategory(category: AdminCategory) {
-    const result = await api<AdminCategory>(category.id ? `/admin/categories/update/${category.id}` : '/admin/categories/create', { method: 'POST', body: { name: category.name } })
-    upsert(data.value.categories, result)
+
+  async function saveCategory({ id, name }: AdminCategory) {
+    upsert(data.value.categories, await save<AdminCategory>('categories', id, { name }))
     saved('Category saved')
   }
-  async function saveMember(member: AdminMember) {
-    const { id, ...body } = member
-    const result = await api<AdminMember>(`/admin/team/update/${id}`, { method: 'POST', body })
-    upsert(data.value.members, result)
+
+  async function removeCategory(id: number) {
+    await api(`/admin/categories/${id}`, { method: 'DELETE' })
+    data.value.categories = data.value.categories.filter(category => category.id !== id)
+    saved('Category removed')
+  }
+
+  async function saveMember({ id, ...body }: AdminMember) {
+    upsert(data.value.members, await save<AdminMember>('team', id, body))
     saved('Team member saved')
   }
+
   /** Invite a new team member. The backend invite logic (e-mail, accepting) is implemented separately. */
   async function inviteMember(invite: { name: string, email: string, role: AdminMember['role'] }) {
     await api('/admin/team/invite', { method: 'POST', body: invite })
     await load()
     saved('Invitation sent')
   }
-  async function saveSchedule(id: string, days: WorkingDay[]) {
-    data.value.schedules[id] = await api<WorkingDay[]>(`/admin/availability/${id}`, { method: 'POST', body: days })
+
+  async function saveSchedule(userId: string, days: WorkingDay[]) {
+    data.value.schedules[userId] = await api<WorkingDay[]>(`/admin/availability/${userId}`, { method: 'PUT', body: days })
     saved('Working hours saved')
   }
+
   async function addClosure(closure: { date: string, reason: string }) {
-    data.value.closures.push(await api<Closure>('/admin/closures/create', { method: 'POST', body: closure }))
-    data.value.closures.sort((a, b) => a.date.localeCompare(b.date))
+    const created = await api<Closure>('/admin/closures', { method: 'POST', body: closure })
+    data.value.closures = [...data.value.closures, created].sort((a, b) => a.date.localeCompare(b.date))
     saved('Closure added')
   }
+
   async function removeClosure(id: number) {
-    await api(`/admin/closures/delete/${id}`, { method: 'DELETE' })
-    data.value.closures = data.value.closures.filter(item => item.id !== id)
+    await api(`/admin/closures/${id}`, { method: 'DELETE' })
+    data.value.closures = data.value.closures.filter(closure => closure.id !== id)
     saved('Closure removed')
   }
 
-  return { data, loaded, load, saved, serviceName, memberName, saveBooking, saveService, saveCategory, saveMember, inviteMember, saveSchedule, addClosure, removeClosure }
+  return {
+    data,
+    loaded,
+    load,
+    saved,
+    serviceName,
+    memberName,
+    saveBooking,
+    saveService,
+    saveCategory,
+    removeCategory,
+    saveMember,
+    inviteMember,
+    saveSchedule,
+    addClosure,
+    removeClosure
+  }
 }

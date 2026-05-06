@@ -2,7 +2,7 @@
 import type { AdminService } from '~/types/admin'
 
 definePageMeta({ layout: 'admin' })
-const { data, saveService, saveCategory } = useAdmin()
+const { data, saveService, saveCategory, removeCategory } = useAdmin()
 const search = ref('')
 const category = ref(0)
 const open = ref(false)
@@ -36,6 +36,16 @@ function editCategory(id = 0) {
   categoryName.value = data.value.categories.find(item => item.id === id)?.name ?? ''
   categoryError.value = ''
   categoryOpen.value = true
+}
+async function deleteCategory(id: number) {
+  categoryError.value = ''
+  try {
+    await removeCategory(id)
+    if (category.value === id) category.value = 0
+    if (categoryId.value === id) editCategory()
+  } catch (e) {
+    categoryError.value = apiErrorMessage(e)
+  }
 }
 async function submitCategory() {
   const name = categoryName.value.trim()
@@ -242,13 +252,23 @@ async function submitCategory() {
             :key="item.id"
             class="flex items-center justify-between rounded-xl bg-elevated/50 px-3 py-2"
           >
-            <span class="text-sm">{{ item.name }}</span><UButton
-              icon="i-lucide-pencil"
-              :aria-label="`Rename ${item.name}`"
-              variant="ghost"
-              color="neutral"
-              @click="editCategory(item.id)"
-            />
+            <span class="text-sm">{{ item.name }}</span>
+            <div class="flex items-center gap-1">
+              <UButton
+                icon="i-lucide-pencil"
+                :aria-label="`Rename ${item.name}`"
+                variant="ghost"
+                color="neutral"
+                @click="editCategory(item.id)"
+              />
+              <UButton
+                icon="i-lucide-trash-2"
+                :aria-label="`Delete ${item.name}`"
+                variant="ghost"
+                color="error"
+                @click="deleteCategory(item.id)"
+              />
+            </div>
           </div>
         </div><form
           class="space-y-4 border-t border-default pt-5"
