@@ -1,7 +1,8 @@
 <script setup lang="ts">
-useSeoMeta({ title: 'Sign in', robots: 'noindex, nofollow' })
+useSeoMeta({ title: 'Create account', robots: 'noindex, nofollow' })
 
-const { login, user } = useAuth()
+const api = useApi()
+const name = ref('')
 const email = ref('')
 const password = ref('')
 const error = ref('')
@@ -11,14 +12,13 @@ async function submit() {
   error.value = ''
   loading.value = true
   try {
-    await login(email.value.trim(), password.value)
-    if (user.value?.role !== 'admin') {
-      error.value = 'This account has no administrator access.'
-      return
-    }
-    await navigateTo('/admin')
+    await api('/auth/register', {
+      method: 'POST',
+      body: { name: name.value.trim(), email: email.value.trim(), password: password.value }
+    })
+    await navigateTo('/login')
   } catch (e) {
-    error.value = apiErrorMessage(e, 'Sign in failed.')
+    error.value = apiErrorMessage(e, 'Registration failed.')
   } finally {
     loading.value = false
   }
@@ -33,12 +33,25 @@ async function submit() {
     >
       <div>
         <h1 class="text-xl font-bold text-highlighted">
-          Administration
+          Create account
         </h1>
         <p class="mt-1 text-sm text-muted">
-          Sign in to manage bookings, services and your team.
+          Register with your name, e-mail and a password.
         </p>
       </div>
+      <UFormField
+        label="Name"
+        required
+      >
+        <UInput
+          v-model="name"
+          autocomplete="name"
+          minlength="2"
+          maxlength="50"
+          required
+          class="w-full"
+        />
+      </UFormField>
       <UFormField
         label="Email"
         required
@@ -53,12 +66,15 @@ async function submit() {
       </UFormField>
       <UFormField
         label="Password"
+        hint="At least 6 characters"
         required
       >
         <UInput
           v-model="password"
           type="password"
-          autocomplete="current-password"
+          autocomplete="new-password"
+          minlength="6"
+          maxlength="100"
           required
           class="w-full"
         />
@@ -74,15 +90,15 @@ async function submit() {
         block
         :loading="loading"
       >
-        Sign in
+        Create account
       </UButton>
       <p class="text-center text-sm text-muted">
-        No account yet?
+        Already have an account?
         <ULink
-          to="/register"
+          to="/login"
           class="font-medium text-primary"
         >
-          Create one
+          Sign in
         </ULink>
       </p>
     </form>
