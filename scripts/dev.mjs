@@ -42,7 +42,8 @@ function run(name, cwd, args, env) {
 const target = process.argv[2]
 const bePort = await findFreePort()
 const fePort = await findFreePort([bePort])
-const beUrl = `http://localhost:${bePort}`
+// 127.0.0.1 instead of localhost: Node resolves localhost to ::1 first, where Nuxt dev's own worker may listen on the same port
+const beUrl = `http://127.0.0.1:${bePort}`
 
 if (!target || target === 'be') {
   console.log(`[BE] ${beUrl}`)

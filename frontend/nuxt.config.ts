@@ -28,12 +28,12 @@ export default defineNuxtConfig({
   // (same origin), Nitro proxies it to the backend, so session cookies work without extra setup.
   runtimeConfig: {
     public: {
-      apiBase: 'http://localhost:3020'
+      apiBase: 'http://127.0.0.1:3020'
     }
   },
 
   routeRules: {
-    '/backend/**': { proxy: `${process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:3020'}/**` },
+    '/backend/**': { proxy: `${process.env.NUXT_PUBLIC_API_BASE || 'http://127.0.0.1:3020'}/**` },
     '/': { prerender: true },
     '/admin': { robots: false },
     '/admin/**': { robots: false }
