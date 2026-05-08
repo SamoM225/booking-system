@@ -95,6 +95,25 @@ async function busyRanges(userId: string, date: string, ignoreBookingId?: number
         .filter(range => range.date === date);
 }
 
+// One-off time off of a specialist clipped to a local date, as minutes from midnight
+export async function timeOffRanges(userId: string, date: string, ignoreTimeOffId?: number) {
+    const dayStart = toDate(date);
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const rows = await prisma.userAvailability.findMany({
+        where: {
+            userId,
+            status: 'unavailable',
+            from: { lt: dayEnd },
+            to: { gt: dayStart },
+            ...(ignoreTimeOffId ? { id: { not: ignoreTimeOffId } } : {})
+        }
+    });
+    return rows.map(row => ({
+        start: Math.max(0, (row.from!.getTime() - dayStart.getTime()) / 60000),
+        end: Math.min(24 * 60, (row.to!.getTime() - dayStart.getTime()) / 60000)
+    }));
+}
+
 export async function getSlots(input: { userId: string, serviceId: number, date: string }) {
     const service = await prisma.service.findUnique({ where: { id: input.serviceId } });
     if (!service || !service.active) return [];
@@ -103,7 +122,7 @@ export async function getSlots(input: { userId: string, serviceId: number, date:
     const day = (await getSchedule(input.userId)).find(item => item.day === dayOfWeek(input.date));
     if (!day?.enabled) return [];
 
-    const busy = await busyRanges(input.userId, input.date);
+    const busy = [...await busyRanges(input.userId, input.date), ...await timeOffRanges(input.userId, input.date)];
     const now = nowLocal().getTime();
     const slots: string[] = [];
     for (let start = toMinutes(day.open); start + service.duration <= toMinutes(day.close); start += SLOT_STEP_MINUTES) {
@@ -144,5 +163,9 @@ export async function assertBookable(input: {
     const busy = await busyRanges(input.userId, input.date, input.ignoreBookingId);
     if (busy.some(range => start < range.end && start + service.duration > range.start)) {
         throw new HttpError(409, 'This specialist already has an overlapping booking');
+    }
+    const timeOff = await timeOffRanges(input.userId, input.date);
+    if (timeOff.some(range => start < range.end && start + service.duration > range.start)) {
+        throw new HttpError(409, 'This specialist is unavailable at this time');
     }
 }
