@@ -1,0 +1,91 @@
+import type { AdminBooking, CalendarData, TimeOff } from '~/types/admin'
+import { formatDayShort } from '~/utils/calendar'
+
+const emptyData = (): CalendarData => ({ members: [], services: [], schedules: {}, bookings: [], timeOff: [], closures: [] })
+
+/**
+ * Calendar data and actions backed by /calendar. The backend scopes everything to the signed-in member:
+ * admins see and manage the whole team, workers only themselves. Mutations throw on failure (use apiErrorMessage).
+ */
+export function useCalendar() {
+  const api = useApi()
+  const toast = useToast()
+  const { isAdmin } = useAuth()
+  const admin = useAdmin()
+  const data = useState<CalendarData>('calendar-data', emptyData)
+  const range = useState<{ from: string, to: string, userId?: string } | null>('calendar-range', () => null)
+  const loading = useState('calendar-loading', () => false)
+  let request = 0
+
+  function saved(title: string) {
+    toast.add({ title, icon: 'i-lucide-circle-check', color: 'success' })
+  }
+
+  async function load(from: string, to: string, userId?: string) {
+    range.value = { from, to, userId }
+    const current = ++request
+    loading.value = true
+    try {
+      const query = { from, to, ...(userId ? { userId } : {}) }
+      const result = await api<CalendarData>('/calendar', { query })
+      // A newer request (the user kept clicking) wins
+      if (current === request) data.value = result
+    } finally {
+      if (current === request) loading.value = false
+    }
+  }
+
+  function reload() {
+    return range.value ? load(range.value.from, range.value.to, range.value.userId) : Promise.resolve()
+  }
+
+  /** Keep the admin pages (bookings table, overview) in sync without a full reload. */
+  function syncAdmin(booking: AdminBooking | null, removedId?: number) {
+    if (!isAdmin.value || !admin.loaded.value) return
+    const list = admin.data.value.bookings.filter(item => item.id !== (booking?.id ?? removedId))
+    admin.data.value.bookings = booking ? [...list, booking] : list
+  }
+
+  async function saveBooking({ id, ...body }: AdminBooking) {
+    const booking = await api<AdminBooking>(id ? `/calendar/bookings/${id}` : '/calendar/bookings', { method: id ? 'PUT' : 'POST', body })
+    syncAdmin(booking)
+    await reload()
+    saved(id ? 'Booking updated' : 'Booking created')
+  }
+
+  async function moveBooking(id: number, target: { date: string, time: string, userId?: string }) {
+    const booking = await api<AdminBooking>(`/calendar/bookings/${id}/move`, { method: 'PATCH', body: target })
+    syncAdmin(booking)
+    await reload()
+    saved(`Booking moved to ${formatDayShort(booking.date)} at ${booking.time}`)
+  }
+
+  async function removeBooking(id: number) {
+    await api(`/calendar/bookings/${id}`, { method: 'DELETE' })
+    syncAdmin(null, id)
+    await reload()
+    saved('Booking deleted')
+  }
+
+  async function saveTimeOff({ id, ...body }: Omit<TimeOff, 'id'> & { id?: number }) {
+    await api<TimeOff>(id ? `/calendar/time-off/${id}` : '/calendar/time-off', { method: id ? 'PUT' : 'POST', body })
+    await reload()
+    saved(id ? 'Unavailability updated' : 'Unavailability added')
+  }
+
+  async function removeTimeOff(id: number) {
+    await api(`/calendar/time-off/${id}`, { method: 'DELETE' })
+    await reload()
+    saved('Unavailability removed')
+  }
+
+  function serviceOf(id: number) {
+    return data.value.services.find(service => service.id === id)
+  }
+
+  function memberName(id: string) {
+    return data.value.members.find(member => member.id === id)?.name ?? 'Unknown specialist'
+  }
+
+  return { data, loading, load, reload, saveBooking, moveBooking, removeBooking, saveTimeOff, removeTimeOff, serviceOf, memberName }
+}
