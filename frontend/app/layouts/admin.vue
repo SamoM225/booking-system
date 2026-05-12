@@ -17,6 +17,7 @@ async function signOut() {
 const { colorMode, toggle } = useThemeTransition()
 const links = [
   { label: 'Overview', to: '/admin', icon: 'i-lucide-layout-dashboard' },
+  { label: 'Calendar', to: '/admin/calendar', icon: 'i-lucide-calendar-range' },
   { label: 'Bookings', to: '/admin/bookings', icon: 'i-lucide-calendar-days' },
   { label: 'Services', to: '/admin/services', icon: 'i-lucide-sparkles' },
   { label: 'Team', to: '/admin/team', icon: 'i-lucide-users-round' },
