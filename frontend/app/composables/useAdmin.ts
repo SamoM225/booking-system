@@ -1,4 +1,4 @@
-import type { AdminBooking, AdminCategory, AdminData, AdminMember, AdminService, Closure, WorkingDay } from '~/types/admin'
+import type { AdminBooking, AdminCategory, AdminData, AdminInvitation, AdminMember, AdminService, Closure, WorkingDay } from '~/types/admin'
 
 type Identified = { id: number | string }
 
@@ -12,7 +12,8 @@ const emptyData = (): AdminData => ({
   services: [],
   members: [],
   schedules: {},
-  closures: []
+  closures: [],
+  invitations: []
 })
 
 function upsert<T extends Identified>(list: T[], item: T) {
@@ -49,15 +50,16 @@ export function useAdmin() {
   }
 
   async function load() {
-    const [bookings, categories, services, members, schedules, closures] = await Promise.all([
+    const [bookings, categories, services, members, schedules, closures, invitations] = await Promise.all([
       api<AdminBooking[]>('/admin/bookings'),
       api<AdminCategory[]>('/admin/categories'),
       api<AdminService[]>('/admin/services'),
       api<AdminMember[]>('/admin/team'),
       api<Record<string, WorkingDay[]>>('/admin/availability'),
-      api<Closure[]>('/admin/closures')
+      api<Closure[]>('/admin/closures'),
+      api<AdminInvitation[]>('/admin/team/invitations')
     ])
-    data.value = { ...emptyData(), bookings, categories, services, members, schedules, closures }
+    data.value = { ...emptyData(), bookings, categories, services, members, schedules, closures, invitations }
     loaded.value = true
   }
 
@@ -87,11 +89,24 @@ export function useAdmin() {
     saved('Team member saved')
   }
 
-  /** Invite a new team member. The backend invite logic (e-mail, accepting) is implemented separately. */
+  /** E-mail an invitation link; the person joins the team after setting their password on /invite/:token. */
   async function inviteMember(invite: { name: string, email: string, role: AdminMember['role'] }) {
-    await api('/admin/team/invite', { method: 'POST', body: invite })
-    await load()
-    saved('Invitation sent')
+    const created = await api<AdminInvitation>('/admin/team/invite', { method: 'POST', body: invite })
+    // Re-inviting an address replaces its previous pending invitation
+    data.value.invitations = [created, ...data.value.invitations.filter(item => item.email !== created.email)]
+    saved(`Invitation sent to ${created.email}`)
+  }
+
+  /** New link and expiry, the previous link stops working. */
+  async function resendInvitation(id: number) {
+    upsert(data.value.invitations, await api<AdminInvitation>(`/admin/team/invitations/${id}/resend`, { method: 'POST' }))
+    saved('Invitation sent again')
+  }
+
+  async function revokeInvitation(id: number) {
+    await api(`/admin/team/invitations/${id}`, { method: 'DELETE' })
+    data.value.invitations = data.value.invitations.filter(item => item.id !== id)
+    saved('Invitation revoked')
   }
 
   async function saveSchedule(userId: string, days: WorkingDay[]) {
@@ -124,6 +139,8 @@ export function useAdmin() {
     removeCategory,
     saveMember,
     inviteMember,
+    resendInvitation,
+    revokeInvitation,
     saveSchedule,
     addClosure,
     removeClosure

@@ -39,6 +39,17 @@ export interface WorkingDay {
   close: string
 }
 export interface Closure { id: number, date: string, reason: string }
+/** Pending e-mail invitation of a new team member (dates are ISO timestamps). */
+export interface AdminInvitation {
+  id: number
+  email: string
+  name: string
+  role: TeamRole
+  createdAt: string
+  expiresAt: string
+  expired: boolean
+  invitedBy: string | null
+}
 export interface AdminData {
   today: string
   bookings: AdminBooking[]
@@ -47,6 +58,7 @@ export interface AdminData {
   members: AdminMember[]
   schedules: Record<string, WorkingDay[]>
   closures: Closure[]
+  invitations: AdminInvitation[]
 }
 
 /** Calendar (/calendar API): admins get the whole team, workers only themselves. */
