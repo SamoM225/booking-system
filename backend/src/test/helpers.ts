@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import bcrypt from 'bcrypt';
 import { createApp } from '../app.js';
 import { prisma } from '../db/prisma.js';
+import { outbox } from '../lib/mailer.js';
 import { redis } from '../lib/redis.js';
 
 // Integration test helpers: `npm test` runs against the booking_cv_test database from .env.test
@@ -58,6 +59,7 @@ export async function resetDatabase() {
     await prisma.$executeRawUnsafe(
         'TRUNCATE TABLE "Bookings", "userAvailability", "Unavailable", "_ServiceToUser", "Service", "Category", "users" RESTART IDENTITY CASCADE'
     );
+    outbox.length = 0;
 }
 
 /** An admin, two workers and one 60-minute service. */

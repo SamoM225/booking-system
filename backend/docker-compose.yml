@@ -19,5 +19,13 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
+  # Local mail catcher: SMTP on 1025, inbox UI + REST API on http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: booking_mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
 volumes:
   pgdata:
