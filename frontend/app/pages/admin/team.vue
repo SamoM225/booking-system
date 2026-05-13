@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type { AdminMember } from '~/types/admin'
+import type { AdminInvitation, AdminMember } from '~/types/admin'
 
 definePageMeta({ layout: 'admin' })
-const { data, saveMember, inviteMember } = useAdmin()
+const { data, saveMember, inviteMember, resendInvitation, revokeInvitation } = useAdmin()
 const search = ref('')
 const open = ref(false)
 const error = ref('')
@@ -31,6 +31,38 @@ async function submit() {
   } catch (e) {
     error.value = apiErrorMessage(e)
   }
+}
+
+const invitationError = ref('')
+const busy = ref<number | null>(null)
+const revoking = ref<AdminInvitation | null>(null)
+const revokeOpen = computed({
+  get: () => revoking.value !== null,
+  set: (value) => {
+    if (!value) revoking.value = null
+  }
+})
+const formatInvitationDate = (value: string) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/Bratislava' }).format(new Date(value))
+async function resend(invitation: AdminInvitation) {
+  invitationError.value = ''
+  busy.value = invitation.id
+  try {
+    await resendInvitation(invitation.id)
+  } catch (e) {
+    invitationError.value = apiErrorMessage(e)
+  } finally {
+    busy.value = null
+  }
+}
+async function revoke() {
+  if (!revoking.value) return
+  invitationError.value = ''
+  try {
+    await revokeInvitation(revoking.value.id)
+  } catch (e) {
+    invitationError.value = apiErrorMessage(e)
+  }
+  revoking.value = null
 }
 </script>
 
@@ -118,10 +150,106 @@ async function submit() {
       description="Try searching for a different name or email."
       icon="i-lucide-users-round"
     />
+    <section
+      v-if="data.invitations.length"
+      class="mt-8 rounded-2xl border border-default bg-default"
+      aria-labelledby="pending-invitations"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-default p-5">
+        <div>
+          <h2
+            id="pending-invitations"
+            class="font-semibold"
+          >
+            Pending invitations
+          </h2>
+          <p class="mt-1 text-xs text-muted">
+            People who have not accepted their invitation yet. A link is valid for 7 days.
+          </p>
+        </div>
+        <UBadge
+          :label="String(data.invitations.length)"
+          variant="subtle"
+        />
+      </div>
+      <ul class="divide-y divide-default">
+        <li
+          v-for="invitation in data.invitations"
+          :key="invitation.id"
+          class="flex flex-wrap items-center gap-4 px-5 py-4"
+        >
+          <div class="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <UIcon
+              name="i-lucide-mail"
+              class="size-4"
+            />
+          </div>
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-sm font-semibold text-highlighted">
+              {{ invitation.name }} <span class="font-normal text-muted">· {{ invitation.role === 'admin' ? 'Administrator' : 'Specialist' }}</span>
+            </p>
+            <p class="truncate text-xs text-muted">
+              {{ invitation.email }} · sent {{ formatInvitationDate(invitation.createdAt) }}{{ invitation.invitedBy ? ` by ${invitation.invitedBy}` : '' }}
+            </p>
+          </div>
+          <UBadge
+            :label="invitation.expired ? 'Expired' : `Valid until ${formatInvitationDate(invitation.expiresAt)}`"
+            :color="invitation.expired ? 'error' : 'neutral'"
+            variant="subtle"
+            size="sm"
+          />
+          <div class="flex gap-1">
+            <UButton
+              label="Resend"
+              icon="i-lucide-send"
+              variant="ghost"
+              size="sm"
+              :loading="busy === invitation.id"
+              @click="resend(invitation)"
+            />
+            <UButton
+              label="Revoke"
+              icon="i-lucide-x"
+              color="error"
+              variant="ghost"
+              size="sm"
+              @click="revoking = invitation"
+            />
+          </div>
+        </li>
+      </ul>
+      <p
+        v-if="invitationError"
+        role="alert"
+        class="border-t border-default px-5 py-3 text-sm text-error"
+      >
+        {{ invitationError }}
+      </p>
+    </section>
+    <UModal
+      v-model:open="revokeOpen"
+      title="Revoke this invitation?"
+      :description="revoking ? `The link sent to ${revoking.email} will stop working.` : ''"
+    >
+      <template #body>
+        <div class="flex justify-end gap-2">
+          <UButton
+            label="Keep invitation"
+            color="neutral"
+            variant="outline"
+            @click="revoking = null"
+          /><UButton
+            label="Revoke invitation"
+            color="error"
+            @click="revoke"
+          />
+        </div>
+      </template>
+    </UModal>
     <UModal
       v-model:open="open"
       :title="draft.id ? 'Edit team member' : 'Add team member'"
-      :description="draft.id ? 'Update this team member’s details and access.' : 'We will invite this person to join the team.'"
+      :description="draft.id ? 'Update this team member’s details and access.' : 'We will e-mail an invitation link. They choose their own password when they accept it.'"
     >
       <template #body>
         <form
@@ -155,12 +283,14 @@ async function submit() {
               :items="[{ label: 'Specialist', value: 'worker' }, { label: 'Administrator', value: 'admin' }]"
               class="w-full"
             />
-          </UFormField><USwitch
-            v-model="draft.active"
-            label="Active team member"
-          /><p class="text-xs leading-5 text-muted">
-            Inactive members keep their existing appointments and cannot be selected for new bookings.
-          </p><p
+          </UFormField><template v-if="draft.id">
+            <USwitch
+              v-model="draft.active"
+              label="Active team member"
+            /><p class="text-xs leading-5 text-muted">
+              Inactive members keep their existing appointments and cannot be selected for new bookings.
+            </p>
+          </template><p
             v-if="error"
             role="alert"
             class="rounded-lg bg-error/10 p-3 text-sm text-error"

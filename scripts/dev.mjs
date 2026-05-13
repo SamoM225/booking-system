@@ -47,7 +47,7 @@ const beUrl = `http://127.0.0.1:${bePort}`
 
 if (!target || target === 'be') {
   console.log(`[BE] ${beUrl}`)
-  run('BE', 'backend', ['dev'], { PORT: String(bePort) })
+  run('BE', 'backend', ['dev'], { PORT: String(bePort), APP_URL: `http://localhost:${fePort}` })
 }
 if (!target || target === 'fe') {
   console.log(`[FE] http://localhost:${fePort}`)
