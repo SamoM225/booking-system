@@ -51,6 +51,8 @@ model User {
   // Services this specialist offers. A specialist with no services offers all of them.
   services  Service[]
 
+  invitationsSent Invitation[]
+
   @@map("users")
 }
 
@@ -124,3 +126,19 @@ model Service {
   category Category @relation(fields: [categoryId], references: [id])
 }
 
+// Invitation of a new team member by e-mail. Only a hash of the token is stored, the token itself is in the e-mail link.
+model Invitation {
+  id          Int       @id @default(autoincrement())
+  email       String
+  name        String
+  role        String    @default("worker")
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  invitedById String?
+
+  invitedBy User? @relation(fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@index([email])
+}

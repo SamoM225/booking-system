@@ -1,7 +1,7 @@
 import { prisma } from "../../../db/prisma.js";
 import type { Prisma } from "../../../generated/prisma/client.js";
 import { HttpError } from "../../../lib/http-error.js";
-import type { InviteMemberInput, UpdateMemberInput } from "./team.schema.js";
+import type { UpdateMemberInput } from "./team.schema.js";
 
 const memberSelect = {
     id: true,
@@ -50,10 +50,4 @@ export async function updateMember(id: string, data: UpdateMemberInput) {
         select: memberSelect
     });
     return toMemberDto(member);
-}
-
-// Invite a new team member by e-mail.
-// TODO: implement the invite logic (create the pending user / invitation token, send the e-mail, accept flow).
-export async function inviteMember(data: InviteMemberInput): Promise<unknown> {
-    throw new HttpError(501, 'Invite is not implemented yet');
 }

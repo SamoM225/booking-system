@@ -57,7 +57,7 @@ export function client(baseUrl: string) {
 
 export async function resetDatabase() {
     await prisma.$executeRawUnsafe(
-        'TRUNCATE TABLE "Bookings", "userAvailability", "Unavailable", "_ServiceToUser", "Service", "Category", "users" RESTART IDENTITY CASCADE'
+        'TRUNCATE TABLE "Bookings", "userAvailability", "Unavailable", "Invitation", "_ServiceToUser", "Service", "Category", "users" RESTART IDENTITY CASCADE'
     );
     outbox.length = 0;
 }
