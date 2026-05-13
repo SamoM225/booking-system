@@ -12,6 +12,10 @@ async function submit() {
   loading.value = true
   try {
     await login(email.value.trim(), password.value)
+    if (user.value?.role === 'worker') {
+      await navigateTo('/admin/calendar')
+      return
+    }
     if (user.value?.role !== 'admin') {
       error.value = 'This account has no administrator access.'
       return

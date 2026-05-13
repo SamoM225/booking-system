@@ -20,3 +20,32 @@
   --color-blue-900: #1E3A8A;
   --color-blue-950: #172554;
 }
+
+/* Calendar: unavailability blocks (hatched, so they never look like a booking) */
+.calendar-time-off {
+  background-color: rgb(241 245 249);
+  background-image: repeating-linear-gradient(135deg, rgb(148 163 184 / 0.28) 0 5px, transparent 5px 10px);
+}
+.dark .calendar-time-off {
+  background-color: rgb(30 41 59);
+  background-image: repeating-linear-gradient(135deg, rgb(148 163 184 / 0.22) 0 5px, transparent 5px 10px);
+}
+
+/* Calendar gestures (usePointerGesture): one cursor everywhere and no text selection while dragging */
+html.calendar-gesture,
+html.calendar-gesture * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+html.calendar-grabbing * {
+  cursor: grabbing !important;
+}
+html.calendar-resizing * {
+  cursor: ns-resize !important;
+}
+html.calendar-selecting * {
+  cursor: cell !important;
+}
+html.calendar-outside * {
+  cursor: no-drop !important;
+}

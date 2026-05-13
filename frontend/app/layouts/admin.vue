@@ -1,9 +1,19 @@
 <script setup lang="ts">
 const route = useRoute()
 const { loaded, load } = useAdmin()
-const { logout, user } = useAuth()
+const { logout, user, isAdmin } = useAuth()
+// The user is only known on the client (see admin.global.ts): render the SSR version first, switch after mount
+const mounted = ref(false)
+const viewer = computed(() => mounted.value ? user.value : null)
+const isWorker = computed(() => viewer.value?.role === 'worker')
 const loadError = ref('')
 onMounted(async () => {
+  mounted.value = true
+  // Workers only have the calendar, which loads its own data from /calendar
+  if (!isAdmin.value) {
+    loaded.value = true
+    return
+  }
   try {
     await load()
   } catch (e) {
@@ -12,17 +22,22 @@ onMounted(async () => {
 })
 async function signOut() {
   await logout()
+  loaded.value = false
   await navigateTo('/login')
 }
 const { colorMode, toggle } = useThemeTransition()
-const links = [
+const allLinks = [
   { label: 'Overview', to: '/admin', icon: 'i-lucide-layout-dashboard' },
+  { label: 'Calendar', to: '/admin/calendar', icon: 'i-lucide-calendar-range' },
   { label: 'Bookings', to: '/admin/bookings', icon: 'i-lucide-calendar-days' },
   { label: 'Services', to: '/admin/services', icon: 'i-lucide-sparkles' },
   { label: 'Team', to: '/admin/team', icon: 'i-lucide-users-round' },
   { label: 'Availability', to: '/admin/availability', icon: 'i-lucide-clock-3' }
 ]
-const current = computed(() => links.find(link => link.to === route.path)?.label ?? 'Overview')
+const links = computed(() => isWorker.value ? allLinks.filter(link => link.to === '/admin/calendar') : allLinks)
+const home = computed(() => isWorker.value ? '/admin/calendar' : '/admin')
+const initials = computed(() => !viewer.value?.name ? 'AD' : viewer.value.name.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase())
+const current = computed(() => allLinks.find(link => link.to === route.path)?.label ?? 'Overview')
 useHead({ meta: [{ name: 'robots', content: 'noindex, nofollow' }] })
 useSeoMeta({ title: () => `${current.value} · Booking Admin` })
 </script>
@@ -35,7 +50,7 @@ useSeoMeta({ title: () => `${current.value} · Booking Admin` })
     >Skip to content</a>
     <aside class="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-default bg-default lg:flex">
       <NuxtLink
-        to="/admin"
+        :to="home"
         class="flex h-22 items-center gap-2.5 px-7"
         aria-label="Booking administration"
       ><AppLogo /><span class="text-xl font-bold tracking-tight">Booking<span class="text-primary">.</span></span></NuxtLink>
@@ -81,12 +96,12 @@ useSeoMeta({ title: () => `${current.value} · Booking Admin` })
         </div>
         <div class="mt-5 flex items-center gap-3 border-t border-default pt-5">
           <div class="flex size-9 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-            AD
+            {{ initials }}
           </div><div>
             <p class="text-sm font-semibold">
-              {{ user?.name || 'Admin workspace' }}
+              {{ viewer?.name || 'Admin workspace' }}
             </p><p class="text-xs text-muted">
-              Administrator
+              {{ isWorker ? 'Specialist' : 'Administrator' }}
             </p>
           </div>
         </div>
@@ -101,7 +116,7 @@ useSeoMeta({ title: () => `${current.value} · Booking Admin` })
           /><span class="font-medium">{{ current }}</span>
         </div>
         <NuxtLink
-          to="/admin"
+          :to="home"
           class="flex items-center gap-2 font-bold lg:hidden"
         ><AppLogo />Booking</NuxtLink>
         <div class="flex items-center gap-2 sm:gap-4">

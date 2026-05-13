@@ -48,3 +48,17 @@ export interface AdminData {
   schedules: Record<string, WorkingDay[]>
   closures: Closure[]
 }
+
+/** Calendar (/calendar API): admins get the whole team, workers only themselves. */
+export interface CalendarMember extends AdminMember { serviceIds: number[] }
+export interface CalendarService { id: number, name: string, duration: number, price: number, active: boolean }
+/** One-off unavailability, local `YYYY-MM-DDTHH:mm`; the end of a day is the next day's 00:00. */
+export interface TimeOff { id: number, userId: string, from: string, to: string, reason: string }
+export interface CalendarData {
+  members: CalendarMember[]
+  services: CalendarService[]
+  schedules: Record<string, WorkingDay[]>
+  bookings: AdminBooking[]
+  timeOff: TimeOff[]
+  closures: Closure[]
+}
