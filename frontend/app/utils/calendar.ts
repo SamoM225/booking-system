@@ -131,6 +131,8 @@ export interface GridEvent {
   resizeEnd: boolean
   /** All-day or multi-day unavailability: dragging changes the day only, never the time */
   dayOnly?: boolean
+  /** Whole range of a day-only item (local YYYY-MM-DDTHH:mm), also the days that are not visible */
+  span?: { from: string, to: string }
 }
 
 /** An entry in the month view. */

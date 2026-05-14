@@ -32,7 +32,9 @@ const ghostEl = ref<HTMLElement | null>(null)
 const byDate = computed(() => {
   const map: Record<string, MonthItem[]> = {}
   for (const item of props.items) (map[item.date] ??= []).push(item)
-  for (const list of Object.values(map)) list.sort((a, b) => a.time.localeCompare(b.time))
+  // All-day first, then what continues from the day before, then by time; the key keeps equal times stable
+  const rank = (item: MonthItem) => item.time === 'All day' ? '0' : item.time.startsWith('–') ? `1${item.time}` : `2${item.time}`
+  for (const list of Object.values(map)) list.sort((a, b) => rank(a).localeCompare(rank(b)) || a.key.localeCompare(b.key))
   return map
 })
 
@@ -49,14 +51,18 @@ interface MoveState {
   days: number
   invalid: string | null
 }
-interface SelectState { mode: 'select', anchor: string, current: string }
+interface SelectState { mode: 'select', anchor: string, current: string, outside: boolean }
 
 const g = ref<MoveState | SelectState | null>(null)
 const pointer = reactive({ x: 0, y: 0 })
 
+// Looks through everything under the pointer, so a toast covering a cell does not hide it as a drop target
 function dateAt(x: number, y: number) {
-  const cell = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-date]')
-  return cell && rootEl.value?.contains(cell) ? cell.dataset.date ?? null : null
+  for (const el of document.elementsFromPoint(x, y)) {
+    const cell = el.closest<HTMLElement>('[data-date]')
+    if (cell && rootEl.value?.contains(cell)) return cell.dataset.date ?? null
+  }
+  return null
 }
 
 const gesture = usePointerGesture<Payload>({
@@ -66,7 +72,7 @@ const gesture = usePointerGesture<Payload>({
   start(payload, e, down) {
     ghostEl.value?.getAnimations().forEach(animation => animation.cancel())
     if (payload.kind === 'select') {
-      g.value = { mode: 'select', anchor: payload.date, current: payload.date }
+      g.value = { mode: 'select', anchor: payload.date, current: payload.date, outside: false }
       return
     }
     const rect = payload.el.getBoundingClientRect()
@@ -83,6 +89,8 @@ const gesture = usePointerGesture<Payload>({
     const date = dateAt(e.clientX, e.clientY)
     if (state.mode === 'select') {
       if (date) state.current = date
+      state.outside = !date
+      gesture.setOutside(!date)
       return
     }
     state.target = date
@@ -95,6 +103,8 @@ const gesture = usePointerGesture<Payload>({
     if (!state) return
     if (state.mode === 'select') {
       g.value = null
+      // Released outside the month: nothing selected
+      if (state.outside) return
       const [from, to] = [state.anchor, state.current].sort() as [string, string]
       if (from === to) emit('create', from)
       else emit('select', { from, to })
@@ -181,6 +191,8 @@ const ghostLabel = computed(() => {
   }
   return `${formatDayShort(state.target)} · ${state.item.time}`
 })
+// Labels flip to the left of the pointer on the right half of the screen, so they never run off it
+const pastMiddle = computed(() => import.meta.client && pointer.x > window.innerWidth / 2)
 const selectLabel = computed(() => {
   const range = selectRange.value
   if (!range) return ''
@@ -268,7 +280,7 @@ defineExpose({ revert })
                 moveState && moveState.item.group === item.group ? 'opacity-40' : ''
               ]"
               @pointerdown.stop="onChipDown($event, item)"
-              @click.stop="emit('open', item)"
+              @click.stop="!item.pending && emit('open', item)"
             >
               <span
                 class="size-1.5 shrink-0 rounded-full"
@@ -297,34 +309,44 @@ defineExpose({ revert })
     </div>
 
     <Teleport to="body">
+      <!-- Above toasts (z-[100]) -->
       <div
         v-if="moveState"
         ref="ghostEl"
-        class="pointer-events-none fixed top-0 left-0 z-[60] flex items-center gap-1.5 rounded-md bg-default px-1.5 py-1 text-[11px] shadow-lg ring-1 ring-default"
-        :class="moveState.target ? 'opacity-95' : 'opacity-50'"
+        class="pointer-events-none fixed top-0 left-0 z-[200] text-[11px]"
         :style="{
           transform: `translate3d(${pointer.x - moveState.grabDx}px, ${pointer.y - moveState.grabDy}px, 0)`,
           width: `${moveState.width}px`,
           height: `${moveState.height}px`
         }"
       >
-        <span
-          class="absolute -top-7 left-0 rounded-md px-2 py-0.5 font-semibold whitespace-nowrap tabular-nums shadow"
-          :class="moveState.invalid ? 'bg-error text-inverted' : 'bg-inverted text-inverted'"
-        >{{ ghostLabel }}</span>
-        <span
-          class="size-1.5 shrink-0 rounded-full"
-          :class="moveState.item.dot"
-        />
-        <span class="text-muted tabular-nums">{{ moveState.item.time }}</span>
-        <span class="truncate font-medium">{{ moveState.item.title }}</span>
+        <div
+          class="flex size-full items-center gap-1.5 rounded-md bg-default px-1.5 py-1 shadow-lg ring-1 ring-default transition-opacity"
+          :class="moveState.target ? 'opacity-95' : 'opacity-40'"
+        >
+          <span
+            class="size-1.5 shrink-0 rounded-full"
+            :class="moveState.item.dot"
+          />
+          <span class="text-muted tabular-nums">{{ moveState.item.time }}</span>
+          <span class="truncate font-medium">{{ moveState.item.title }}</span>
+        </div>
+      </div>
+      <div
+        v-if="moveState"
+        class="pointer-events-none fixed z-[200] rounded-md px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap tabular-nums shadow"
+        :class="[pastMiddle ? '-translate-x-full' : '', moveState.invalid ? 'bg-error text-inverted' : 'bg-inverted text-inverted']"
+        :style="{ left: `${pastMiddle ? pointer.x - 12 : pointer.x + 12}px`, top: `${Math.max(pointer.y - moveState.grabDy - 28, 4)}px` }"
+      >
+        {{ ghostLabel }}
       </div>
       <div
         v-if="selectRange"
-        class="pointer-events-none fixed top-0 left-0 z-[60] rounded-md bg-inverted px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-inverted tabular-nums shadow"
-        :style="{ transform: `translate3d(${pointer.x + 12}px, ${pointer.y - 30}px, 0)` }"
+        class="pointer-events-none fixed top-0 left-0 z-[200] rounded-md bg-inverted px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-inverted tabular-nums shadow"
+        :class="pastMiddle ? '-translate-x-full' : ''"
+        :style="{ left: `${pastMiddle ? pointer.x - 12 : pointer.x + 12}px`, top: `${pointer.y - 30}px` }"
       >
-        {{ selectLabel }}
+        {{ g?.mode === 'select' && g.outside ? 'Release to cancel' : selectLabel }}
       </div>
     </Teleport>
   </div>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { GridColumn, GridDraft, GridEvent } from '~/utils/calendar'
-import { DAY_MINUTES, formatDuration, formatRange, fromMinutes, prefersReducedMotion } from '~/utils/calendar'
+import { shiftDate } from '~/utils/admin'
+import { datesBetween, DAY_MINUTES, daysBetween, formatDayShort, formatDuration, formatRange, fromMinutes, prefersReducedMotion, shiftDateTime, splitDateTime } from '~/utils/calendar'
 import { OUTSIDE_DISTANCE } from '~/composables/usePointerGesture'
 
 const props = withDefaults(defineProps<{
@@ -34,7 +35,10 @@ const gridStart = computed(() => props.startHour * 60)
 const gridEnd = computed(() => props.endHour * 60)
 const height = computed(() => (props.endHour - props.startHour) * HOUR_HEIGHT)
 const hours = computed(() => Array.from({ length: props.endHour - props.startHour }, (_, i) => props.startHour + i))
-const template = computed(() => `${HOUR_COLUMN}px repeat(${props.columns.length}, minmax(${props.columns.length > 7 ? 130 : 110}px, 1fr))`)
+const minColumn = computed(() => props.columns.length > 7 ? 130 : 110)
+const template = computed(() => `${HOUR_COLUMN}px repeat(${props.columns.length}, minmax(${minColumn.value}px, 1fr))`)
+// The grid box must be as wide as its tracks, otherwise the sticky hour column scrolls away on narrow screens
+const minWidth = computed(() => HOUR_COLUMN + props.columns.length * minColumn.value)
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 const y = (minutes: number) => (clamp(minutes, gridStart.value, gridEnd.value) - gridStart.value) * perMinute
@@ -118,6 +122,9 @@ interface MoveState {
   grabDy: number
   width: number
   height: number
+  /** Ghost top relative to the scroller content, for blocks that only move by days */
+  originOffset: number
+  ghostTop: number
   downMinutes: number
   column: string
   start: number
@@ -131,6 +138,7 @@ interface ResizeState {
   downMinutes: number
   start: number
   end: number
+  outside: boolean
   invalid: string | null
 }
 interface SelectState {
@@ -139,6 +147,7 @@ interface SelectState {
   anchor: number
   start: number
   end: number
+  outside: boolean
 }
 
 const g = ref<MoveState | ResizeState | SelectState | null>(null)
@@ -146,15 +155,18 @@ const pointer = reactive({ x: 0, y: 0 })
 
 const gesture = usePointerGesture<Payload>({
   cursor: payload => payload.kind === 'move' ? 'grabbing' : payload.kind === 'select' ? 'selecting' : 'resizing',
+  // A selection and a resize stay in their column, so the grid never scrolls sideways for them
+  axes: payload => payload.kind === 'move' ? 'both' : 'y',
   scroller: () => scrollerEl.value,
   insets: () => ({ top: headerEl.value?.offsetHeight ?? 0, left: HOUR_COLUMN }),
+  scrollWindow: true,
   start(payload, e, down) {
     hover.value = null
     ghostEl.value?.getAnimations().forEach(animation => animation.cancel())
     if (payload.kind === 'select') {
       const el = columnEls.get(payload.column.key)!
       const anchor = clamp(floorTo(pointerMinutes(down.y, el)), gridStart.value, gridEnd.value - props.snap)
-      g.value = { mode: 'select', column: payload.column.key, anchor, start: anchor, end: anchor + props.snap }
+      g.value = { mode: 'select', column: payload.column.key, anchor, start: anchor, end: anchor + props.snap, outside: false }
       return
     }
     const { event } = payload
@@ -162,21 +174,25 @@ const gesture = usePointerGesture<Payload>({
     const downMinutes = pointerMinutes(down.y, el)
     if (payload.kind === 'move') {
       const rect = payload.el.getBoundingClientRect()
+      const scroller = scrollerEl.value!
       pointer.x = e.clientX
       pointer.y = e.clientY
       g.value = {
         mode: 'move', event, grabDx: down.x - rect.left, grabDy: down.y - rect.top, width: rect.width, height: rect.height,
+        originOffset: rect.top - scroller.getBoundingClientRect().top + scroller.scrollTop, ghostTop: rect.top,
         downMinutes, column: event.column, start: event.start, end: event.end, outside: false, invalid: null
       }
       return
     }
-    g.value = { mode: payload.kind, event, downMinutes, start: event.start, end: event.end, invalid: null }
+    g.value = { mode: payload.kind, event, downMinutes, start: event.start, end: event.end, outside: false, invalid: null }
   },
   move(e) {
     const state = g.value
     if (!state) return
     pointer.x = e.clientX
     pointer.y = e.clientY
+    state.outside = isOutside(e)
+    gesture.setOutside(state.outside)
     if (state.mode === 'select') {
       const el = columnEls.get(state.column)
       if (!el) return
@@ -187,8 +203,6 @@ const gesture = usePointerGesture<Payload>({
     }
     const { event } = state
     if (state.mode === 'move') {
-      state.outside = isOutside(e)
-      gesture.setOutside(state.outside)
       const key = columnAt(e.clientX) ?? state.column
       const el = columnEls.get(key)
       if (!el) return
@@ -196,11 +210,14 @@ const gesture = usePointerGesture<Payload>({
       state.width = el.getBoundingClientRect().width - 4
       const duration = event.end - event.start
       if (event.dayOnly) {
-        // All-day / multi-day unavailability keeps its times, only the day changes
+        // All-day / multi-day unavailability keeps its times, only the day changes, so the ghost stays on its row
+        const scroller = scrollerEl.value!
         state.start = event.start
+        state.ghostTop = scroller.getBoundingClientRect().top + state.originOffset - scroller.scrollTop
       } else {
         const start = shifted(event.start, pointerMinutes(e.clientY, el) - state.downMinutes)
         state.start = clamp(start, Math.min(gridStart.value, event.start), Math.max(gridEnd.value - duration, event.start))
+        state.ghostTop = e.clientY - state.grabDy
       }
       state.end = state.start + duration
       const column = columnByKey(key)
@@ -209,12 +226,18 @@ const gesture = usePointerGesture<Payload>({
     }
     const el = columnEls.get(event.column)
     if (!el) return
-    const delta = pointerMinutes(e.clientY, el) - state.downMinutes
-    // Delta based, so the part of a long block hidden outside the visible hours is kept
+    const minutes = pointerMinutes(e.clientY, el)
+    const delta = minutes - state.downMinutes
+    // Delta based, so the part of a long block hidden outside the visible hours is kept. An edge that is itself
+    // outside the visible hours is drawn at the grid border, so it follows the pointer instead.
+    // A tiny move keeps the original value, so just touching a handle never cuts the hidden part off.
+    const still = Math.abs(delta) < props.snap / 2
     if (state.mode === 'resize-end') {
-      state.end = clamp(shifted(event.end, delta), event.start + props.snap, DAY_MINUTES)
+      const end = event.end > gridEnd.value ? (still ? event.end : roundTo(minutes)) : shifted(event.end, delta)
+      state.end = clamp(end, event.start + props.snap, DAY_MINUTES)
     } else {
-      state.start = clamp(shifted(event.start, delta), 0, event.end - props.snap)
+      const start = event.start < gridStart.value ? (still ? event.start : roundTo(minutes)) : shifted(event.start, delta)
+      state.start = clamp(start, 0, event.end - props.snap)
     }
     const column = columnByKey(event.column)
     state.invalid = column && props.validate ? props.validate({ event, column, start: state.start, end: state.end }) : null
@@ -225,7 +248,7 @@ const gesture = usePointerGesture<Payload>({
     if (state.mode === 'select') {
       const column = columnByKey(state.column)
       g.value = null
-      if (column) emit('select', { column, start: state.start, end: state.end })
+      if (column && !state.outside) emit('select', { column, start: state.start, end: state.end })
       return
     }
     if (state.mode === 'move') {
@@ -241,6 +264,7 @@ const gesture = usePointerGesture<Payload>({
       return
     }
     g.value = null
+    if (state.outside) return
     if (state.invalid) return emit('invalid', state.invalid)
     if (state.start !== state.event.start || state.end !== state.event.end) {
       emit('resize', { event: state.event, start: state.start, end: state.end })
@@ -285,6 +309,11 @@ function onColumnDown(e: PointerEvent, column: GridColumn) {
   gesture.begin(e, { kind: 'select', column })
 }
 
+// While a drop is being saved, the block shows values the server has not confirmed yet
+function open(event: GridEvent) {
+  if (!event.pending) emit('open', event)
+}
+
 // Click (no drag) on empty space; the click after a drag is swallowed by usePointerGesture
 function create(e: MouseEvent, column: GridColumn) {
   const el = columnEls.get(column.key)
@@ -304,17 +333,54 @@ const isResizing = (event: GridEvent) => {
   return Boolean(state && (state.mode === 'resize-start' || state.mode === 'resize-end') && state.event.key === event.key)
 }
 const blockHeight = (event: GridEvent) => Math.max(y(shown(event).end) - y(shown(event).start) - 2, 18)
+const blockSubtitle = (event: GridEvent) => isResizing(event) ? formatRange(shown(event).start, shown(event).end) : event.subtitle
 
 const moveState = computed(() => g.value?.mode === 'move' ? g.value : null)
+
+// The whole range a day-only item would cover after the drop (also days outside the visible ones)
+const movedSpan = computed(() => {
+  const state = moveState.value
+  const span = state?.event.span
+  if (!state || !span) return null
+  const target = columnByKey(state.column)
+  const origin = columnByKey(state.event.column)
+  if (!target || !origin) return null
+  const shift = daysBetween(origin.date, target.date) * DAY_MINUTES
+  const from = splitDateTime(shiftDateTime(span.from, shift))
+  const to = splitDateTime(shiftDateTime(span.to, shift))
+  return { from, to, last: to.minutes === 0 ? shiftDate(to.date, -1) : to.date }
+})
+
+// Where the dragged item lands: one indicator per visible day (a multi-day unavailability moves as a whole)
+const dropTargets = computed(() => {
+  const state = moveState.value
+  if (!state || state.outside) return []
+  const span = movedSpan.value
+  if (!state.event.dayOnly || !span) return [{ column: state.column, start: state.start, end: state.end }]
+  const suffix = state.column.slice(state.column.indexOf('|'))
+  return datesBetween(span.from.date, span.last)
+    .map(day => ({ column: `${day}${suffix}`, start: day === span.from.date ? span.from.minutes : 0, end: day === span.to.date ? span.to.minutes : DAY_MINUTES }))
+    // Parts outside the visible hours get no indicator (it would hang below the grid)
+    .filter(item => item.start < item.end && item.end > gridStart.value && item.start < gridEnd.value && columnByKey(item.column))
+})
 const ghostLabel = computed(() => {
   const state = moveState.value
   if (!state) return ''
   if (state.outside) return 'Release to cancel'
   if (state.invalid) return state.invalid
+  const span = movedSpan.value
+  if (state.event.dayOnly && span) {
+    const column = columnByKey(state.column)
+    const days = span.from.date === span.last ? formatDayShort(span.from.date) : `${formatDayShort(span.from.date)} – ${formatDayShort(span.last)}`
+    // In the day view with one column per specialist the column is a person
+    return column?.userId && column.userId !== columnByKey(state.event.column)?.userId ? `${days} · ${column.title}` : days
+  }
   const column = state.column !== state.event.column ? columnByKey(state.column) : undefined
   return `${formatRange(state.start, state.end)}${column ? ` · ${column.title}` : ''}`
 })
 const resizeState = computed(() => g.value && (g.value.mode === 'resize-start' || g.value.mode === 'resize-end') ? g.value : null)
+// The pill sits next to the pointer, on its left in the right half of the screen, so it never runs off it
+const pastMiddle = computed(() => import.meta.client && pointer.x > window.innerWidth / 2)
 
 // ---------- Hover hint on empty space (mouse only) ----------
 const hover = ref<{ column: string, minutes: number } | null>(null)
@@ -330,27 +396,33 @@ function onColumnHover(e: PointerEvent, column: GridColumn) {
 
 // ---------- Keyboard: Alt + arrows move a focused block, Alt + Shift + arrows change the end ----------
 const announcement = ref('')
+function refused(draft: GridDraft) {
+  const message = props.validate?.(draft)
+  if (message) emit('invalid', message)
+  return Boolean(message)
+}
 function onBlockKey(e: KeyboardEvent, event: GridEvent) {
   if (!e.altKey || !event.editable || event.pending || !e.key.startsWith('Arrow')) return
   e.preventDefault()
   const duration = event.end - event.start
   const vertical = e.key === 'ArrowUp' ? -props.snap : e.key === 'ArrowDown' ? props.snap : 0
+  const own = columnByKey(event.column)
   if (e.shiftKey && vertical) {
-    if (!event.resizeEnd) return
+    if (!event.resizeEnd || !own) return
     const end = clamp(event.end + vertical, event.start + props.snap, DAY_MINUTES)
-    if (end !== event.end) emit('resize', { event, start: event.start, end })
+    if (end === event.end || refused({ event, column: own, start: event.start, end })) return
+    emit('resize', { event, start: event.start, end })
     announcement.value = `Ends at ${fromMinutes(end % DAY_MINUTES)}`
   } else if (vertical) {
-    if (event.dayOnly) return
+    if (event.dayOnly || !own) return
     const start = clamp(event.start + vertical, 0, DAY_MINUTES - duration)
-    const column = columnByKey(event.column)
-    if (!column || start === event.start) return
-    emit('move', { event, column, minutes: start })
+    if (start === event.start || refused({ event, column: own, start, end: start + duration })) return
+    emit('move', { event, column: own, minutes: start })
     announcement.value = `Moved to ${formatRange(start, start + duration)}`
   } else {
     const index = props.columns.findIndex(item => item.key === event.column) + (e.key === 'ArrowLeft' ? -1 : 1)
     const column = props.columns[index]
-    if (!column) return
+    if (!column || refused({ event, column, start: event.start, end: event.end })) return
     emit('move', { event, column, minutes: event.start })
     announcement.value = `Moved to ${column.title}, ${formatRange(event.start, event.end)}`
   }
@@ -387,7 +459,7 @@ defineExpose({ revert })
   >
     <div
       class="grid"
-      :style="{ gridTemplateColumns: template }"
+      :style="{ gridTemplateColumns: template, minWidth: `${minWidth}px` }"
     >
       <!-- Header -->
       <div
@@ -499,7 +571,7 @@ defineExpose({ revert })
             event.muted ? 'opacity-55 line-through decoration-1' : '',
             event.dashed ? 'border-dashed' : '',
             isDimmed(event) ? 'pointer-events-none opacity-40 saturate-50 outline-1 outline-current/40 outline-dashed' : '',
-            isResizing(event) ? 'z-[3] shadow-md ring-2 ring-primary' : 'z-[1] hover:z-[2]'
+            isResizing(event) ? `z-[3] shadow-md ring-2 ${resizeState?.invalid ? 'opacity-80 ring-error' : 'ring-primary'}` : 'z-[1] hover:z-[2]'
           ]"
           :style="{
             top: `${y(shown(event).start) + 1}px`,
@@ -509,21 +581,21 @@ defineExpose({ revert })
           }"
           :aria-label="`${event.title}, ${event.subtitle}${event.editable ? '. Drag to move, Alt and arrow keys to move with the keyboard' : ''}`"
           @pointerdown.stop="onBlockDown($event, event)"
-          @click.stop="emit('open', event)"
+          @click.stop="open(event)"
           @keydown="onBlockKey($event, event)"
         >
           <p
             v-if="blockHeight(event) < 38"
             class="truncate"
           >
-            <span class="font-semibold">{{ event.title }}</span> <span class="opacity-80">{{ event.subtitle }}</span>
+            <span class="font-semibold">{{ event.title }}</span> <span class="opacity-80">{{ blockSubtitle(event) }}</span>
           </p>
           <template v-else>
             <p class="truncate font-semibold">
               {{ event.title }}
             </p>
             <p class="truncate opacity-80">
-              {{ isResizing(event) ? formatRange(shown(event).start, shown(event).end) : event.subtitle }}
+              {{ blockSubtitle(event) }}
             </p>
           </template>
           <UIcon
@@ -545,39 +617,50 @@ defineExpose({ revert })
           ><span class="mx-auto mb-0.5 block h-1 w-8 rounded-full bg-current/50" /></span>
         </button>
 
-        <!-- Resize label -->
+        <!-- Resize label, kept inside the column so it never makes the grid scrollable -->
         <div
           v-if="resizeState && resizeState.event.column === column.key"
-          class="pointer-events-none absolute left-1 z-[5] rounded-md px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap tabular-nums shadow"
-          :class="resizeState.invalid ? 'bg-error text-inverted' : 'bg-inverted text-inverted'"
+          class="pointer-events-none absolute inset-x-1 z-[5] rounded-md px-1.5 py-0.5 text-[11px] leading-tight font-semibold tabular-nums shadow"
+          :class="resizeState.outside ? 'bg-inverted/70 text-inverted' : resizeState.invalid ? 'bg-error text-inverted' : 'bg-inverted text-inverted'"
           :style="resizeState.mode === 'resize-start'
-            ? { top: `${Math.max(y(resizeState.start) - 24, 0)}px` }
-            : { top: `${y(resizeState.end) + 4}px` }"
+            ? { top: `${Math.max(y(resizeState.start) - 36, 0)}px` }
+            : { top: `${Math.min(y(resizeState.end) + 4, height - 34)}px` }"
         >
-          {{ resizeState.invalid ?? `${formatRange(resizeState.start, resizeState.end)} · ${formatDuration(resizeState.end - resizeState.start)}` }}
+          <template v-if="resizeState.outside">
+            Release to cancel
+          </template>
+          <template v-else-if="resizeState.invalid">
+            {{ resizeState.invalid }}
+          </template>
+          <template v-else>
+            <span class="block">{{ formatRange(resizeState.start, resizeState.end) }}</span>
+            <span class="block font-normal opacity-80">{{ formatDuration(resizeState.end - resizeState.start) }}</span>
+          </template>
         </div>
 
-        <!-- Drop indicator -->
+        <!-- Drop indicator(s) -->
         <div
-          v-if="moveState && !moveState.outside && moveState.column === column.key"
+          v-for="target in dropTargets.filter(item => item.column === column.key)"
+          :key="`drop-${target.start}`"
           class="pointer-events-none absolute inset-x-[2px] z-[4] rounded-md border-2 border-dashed px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
-          :class="moveState.invalid ? 'border-error bg-error/10 text-error' : 'border-primary bg-primary/10 text-primary'"
-          :style="{ top: `${y(moveState.start)}px`, height: `${Math.max(y(moveState.end) - y(moveState.start), 18)}px` }"
+          :class="moveState?.invalid ? 'border-error bg-error/10 text-error' : 'border-primary bg-primary/10 text-primary'"
+          :style="{ top: `${y(target.start)}px`, height: `${Math.max(y(target.end) - y(target.start), 18)}px` }"
         >
-          {{ fromMinutes(moveState.start) }}
+          {{ fromMinutes(target.start) }}
         </div>
 
         <!-- Range being selected / kept for the chooser -->
         <div
           v-if="g?.mode === 'select' && g.column === column.key"
           class="pointer-events-none absolute inset-x-[2px] z-[4] rounded-md border border-primary bg-primary/20 px-1.5 py-1 text-[11px] leading-tight shadow-sm"
+          :class="g.outside ? 'border-dashed !bg-primary/5' : ''"
           :style="{ top: `${y(g.start)}px`, height: `${y(g.end) - y(g.start)}px` }"
         >
           <p class="font-semibold text-primary tabular-nums">
-            {{ formatRange(g.start, g.end) }}
+            {{ g.outside ? 'Release to cancel' : formatRange(g.start, g.end) }}
           </p>
           <p
-            v-if="y(g.end) - y(g.start) >= 36"
+            v-if="y(g.end) - y(g.start) >= 36 && !g.outside"
             class="text-muted"
           >
             {{ formatDuration(g.end - g.start) }}
@@ -609,29 +692,45 @@ defineExpose({ revert })
       {{ announcement }}
     </p>
 
-    <!-- The block itself follows the pointer while it is moved -->
+    <!-- The block itself follows the pointer while it is moved (above toasts, z-[100]) -->
     <Teleport to="body">
       <div
         v-if="moveState"
         ref="ghostEl"
-        class="pointer-events-none fixed top-0 left-0 z-[60] flex flex-col overflow-visible rounded-md border-l-[3px] px-1.5 py-1 text-left text-[11px] leading-tight shadow-xl transition-[width,opacity] duration-100"
-        :class="[moveState.event.tone, moveState.event.dashed ? 'border-dashed' : '', moveState.outside ? 'opacity-50' : 'opacity-95']"
+        class="pointer-events-none fixed top-0 left-0 z-[200] transition-[width] duration-100"
         :style="{
-          transform: `translate3d(${pointer.x - Math.min(moveState.grabDx, moveState.width - 8)}px, ${pointer.y - moveState.grabDy}px, 0)`,
+          transform: `translate3d(${pointer.x - Math.min(moveState.grabDx, moveState.width - 8)}px, ${moveState.ghostTop}px, 0)`,
           width: `${moveState.width}px`,
           height: `${moveState.height}px`
         }"
       >
-        <span
-          class="absolute -top-7 left-0 rounded-md px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap tabular-nums shadow"
-          :class="moveState.invalid && !moveState.outside ? 'bg-error text-inverted' : 'bg-inverted text-inverted'"
-        >{{ ghostLabel }}</span>
-        <p class="truncate font-semibold">
-          {{ moveState.event.title }}
-        </p>
-        <p class="truncate opacity-80 tabular-nums">
-          {{ formatRange(moveState.start, moveState.end) }}
-        </p>
+        <div
+          class="flex size-full flex-col overflow-hidden rounded-md border-l-[3px] px-1.5 py-1 text-left text-[11px] leading-tight shadow-xl transition-opacity"
+          :class="[moveState.event.tone, moveState.event.dashed ? 'border-dashed' : '', moveState.outside ? 'opacity-40' : 'opacity-95']"
+        >
+          <p
+            v-if="moveState.height < 38"
+            class="truncate"
+          >
+            <span class="font-semibold">{{ moveState.event.title }}</span> <span class="opacity-80 tabular-nums">{{ formatRange(moveState.start, moveState.end) }}</span>
+          </p>
+          <template v-else>
+            <p class="truncate font-semibold">
+              {{ moveState.event.title }}
+            </p>
+            <p class="truncate opacity-80 tabular-nums">
+              {{ formatRange(moveState.start, moveState.end) }}
+            </p>
+          </template>
+        </div>
+      </div>
+      <div
+        v-if="moveState"
+        class="pointer-events-none fixed z-[200] rounded-md px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap tabular-nums shadow"
+        :class="[pastMiddle ? '-translate-x-full' : '', moveState.invalid && !moveState.outside ? 'bg-error text-inverted' : 'bg-inverted text-inverted']"
+        :style="{ left: `${pastMiddle ? pointer.x - 12 : pointer.x + 12}px`, top: `${Math.max(moveState.ghostTop - 28, 4)}px` }"
+      >
+        {{ ghostLabel }}
       </div>
     </Teleport>
   </div>
