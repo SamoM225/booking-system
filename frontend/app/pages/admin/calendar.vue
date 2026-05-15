@@ -13,7 +13,7 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const { isAdmin, user } = useAuth()
-const { data, loading, load, reload, moveBooking, saveTimeOff, serviceOf, memberName } = useCalendar()
+const { data, loading, request: requestId, applied, load, reload, moveBooking, saveTimeOff, serviceOf, memberName } = useCalendar()
 
 const views: Array<{ label: string, value: CalendarView }> = [
   { label: 'Day', value: 'day' }, { label: 'Week', value: 'week' }, { label: 'Month', value: 'month' }
@@ -39,7 +39,7 @@ const memberItems = computed(() => [
 ])
 const visibleMembers = computed(() => data.value.members.filter(item => filterUserId.value
   ? item.id === filterUserId.value
-  : item.active || data.value.bookings.some(booking => booking.userId === item.id) || data.value.timeOff.some(entry => entry.userId === item.id)))
+  : item.active || bookings.value.some(booking => booking.userId === item.id) || timeOff.value.some(entry => entry.userId === item.id)))
 const tone = (userId: string) => memberPalette[Math.max(0, data.value.members.findIndex(item => item.id === userId)) % memberPalette.length]!
 const closures = computed(() => Object.fromEntries(data.value.closures.map(item => [item.date, item.reason])))
 
@@ -124,10 +124,21 @@ const columnKey = (day: string, userId: string) => byMember.value ? `${day}|${us
 const showMember = computed(() => !filterUserId.value && !byMember.value)
 const firstName = (userId: string) => memberName(userId).split(' ')[0]
 
-// Items waiting for the server after a drop (b<id> / t<id>)
+// Drag & drop changes are shown on top of the loaded data until a reload confirms them (keyed b<id> / t<id>),
+// so one drop finishing and reloading never wipes out another one that is still being saved
+const overrides = ref(new Map<string, Partial<AdminBooking> & Partial<TimeOff>>())
+// Items waiting for the server after a drop
 const pending = ref(new Set<string>())
+const bookings = computed(() => data.value.bookings.map((item) => {
+  const changes = overrides.value.get(`b${item.id}`)
+  return changes ? { ...item, ...changes } as AdminBooking : item
+}))
+const timeOff = computed(() => data.value.timeOff.map((item) => {
+  const changes = overrides.value.get(`t${item.id}`)
+  return changes ? { ...item, ...changes } as TimeOff : item
+}))
 
-const bookingEvents = computed<GridEvent[]>(() => data.value.bookings.map((booking) => {
+const bookingEvents = computed<GridEvent[]>(() => bookings.value.map((booking) => {
   const service = serviceOf(booking.serviceId)
   const start = toMinutes(booking.time)
   const end = start + (service?.duration ?? 30)
@@ -164,7 +175,7 @@ function timeOffSegments(item: TimeOff) {
   })
 }
 
-const timeOffEvents = computed<GridEvent[]>(() => data.value.timeOff.flatMap((item) => {
+const timeOffEvents = computed<GridEvent[]>(() => timeOff.value.flatMap((item) => {
   const group = `t${item.id}`
   const dayOnly = isDayOnly(item)
   return timeOffSegments(item).map(segment => ({
@@ -182,7 +193,8 @@ const timeOffEvents = computed<GridEvent[]>(() => data.value.timeOff.flatMap((it
     pending: pending.value.has(group),
     resizeStart: segment.first,
     resizeEnd: segment.last,
-    dayOnly
+    dayOnly,
+    span: dayOnly ? { from: item.from, to: item.to } : undefined
   }))
 }))
 
@@ -199,8 +211,8 @@ const hourRange = computed(() => {
     }
   }
   for (const event of gridEvents.value) {
-    // All-day / multi-day blocks would stretch the grid to 00-24
-    if (event.dayOnly) continue
+    // Whole days would stretch the grid to 00-24; the evening / morning part of an overnight item does count
+    if (event.start === 0 && event.end === DAY_MINUTES) continue
     opens.push(event.start)
     closes.push(event.end)
   }
@@ -211,7 +223,7 @@ const hourRange = computed(() => {
 
 // ---------- Month ----------
 const monthItems = computed<MonthItem[]>(() => [
-  ...data.value.bookings.map(booking => ({
+  ...bookings.value.map(booking => ({
     key: `b${booking.id}`,
     group: `b${booking.id}`,
     kind: 'booking' as const,
@@ -224,7 +236,7 @@ const monthItems = computed<MonthItem[]>(() => [
     editable: booking.status !== 'cancelled',
     pending: pending.value.has(`b${booking.id}`)
   })),
-  ...data.value.timeOff.flatMap(item => timeOffSegments(item).map(segment => ({
+  ...timeOff.value.flatMap(item => timeOffSegments(item).map(segment => ({
     key: `t${item.id}-${segment.day}`,
     group: `t${item.id}`,
     kind: 'timeOff' as const,
@@ -254,23 +266,23 @@ function resizedTimeOff(item: TimeOff, event: GridEvent, start: number, end: num
 
 /** Why a booking / unavailability of `userId` cannot take this time, based on what is loaded (the server has the final say). */
 function conflict(userId: string, span: readonly [number, number], ignore: { booking?: number, timeOff?: number }, kind: GridEvent['kind']) {
-  const booked = data.value.bookings.some(item => item.userId === userId && item.id !== ignore.booking && item.status !== 'cancelled' && overlaps(bookingSpan(item), span))
+  const booked = bookings.value.some(item => item.userId === userId && item.id !== ignore.booking && item.status !== 'cancelled' && overlaps(bookingSpan(item), span))
   if (booked) return kind === 'booking' ? 'Overlaps another booking' : 'Overlaps a booking'
-  const off = data.value.timeOff.some(item => item.userId === userId && item.id !== ignore.timeOff && overlaps([absoluteDateTime(item.from), absoluteDateTime(item.to)], span))
+  const off = timeOff.value.some(item => item.userId === userId && item.id !== ignore.timeOff && overlaps([absoluteDateTime(item.from), absoluteDateTime(item.to)], span))
   if (off) return kind === 'booking' ? 'Specialist is unavailable then' : 'Overlaps another unavailability'
   return null
 }
 
 function validateGrid({ event, column, start, end }: GridDraft) {
   if (event.kind === 'booking') {
-    const booking = data.value.bookings.find(item => item.id === event.id)
+    const booking = bookings.value.find(item => item.id === event.id)
     if (!booking) return null
     if (closures.value[column.date]) return `Closed · ${closures.value[column.date]}`
     const userId = column.userId ?? booking.userId
     const startAt = absolute(column.date, start)
     return conflict(userId, [startAt, startAt + (end - start)], { booking: booking.id }, 'booking')
   }
-  const item = data.value.timeOff.find(entry => entry.id === event.id)
+  const item = timeOff.value.find(entry => entry.id === event.id)
   if (!item) return null
   const isMove = end - start === event.end - event.start && (start !== event.start || column.key !== event.column)
   const next = isMove ? movedTimeOff(item, event, column, start) : { userId: item.userId, ...resizedTimeOff(item, event, start, end) }
@@ -279,13 +291,13 @@ function validateGrid({ event, column, start, end }: GridDraft) {
 
 function validateMonth({ item, date: target, days }: { item: MonthItem, date: string, days: number }) {
   if (item.kind === 'booking') {
-    const booking = data.value.bookings.find(entry => entry.id === item.id)
+    const booking = bookings.value.find(entry => entry.id === item.id)
     if (!booking) return null
     if (closures.value[target]) return `Closed · ${closures.value[target]}`
     const startAt = absolute(target, toMinutes(booking.time))
     return conflict(booking.userId, [startAt, startAt + (serviceOf(booking.serviceId)?.duration ?? 30)], { booking: booking.id }, 'booking')
   }
-  const entry = data.value.timeOff.find(value => value.id === item.id)
+  const entry = timeOff.value.find(value => value.id === item.id)
   if (!entry) return null
   const shift = days * DAY_MINUTES
   return conflict(entry.userId, [absoluteDateTime(entry.from) + shift, absoluteDateTime(entry.to) + shift], { timeOff: entry.id }, 'timeOff')
@@ -344,22 +356,22 @@ function newTimeOff(slot: Slot = defaultSlot()) {
 }
 function openItem(kind: 'booking' | 'timeOff', id: number) {
   if (kind === 'booking') {
-    selectedBooking.value = data.value.bookings.find(item => item.id === id) ?? null
+    selectedBooking.value = bookings.value.find(item => item.id === id) ?? null
     bookingOpen.value = Boolean(selectedBooking.value)
   } else {
-    selectedTimeOff.value = data.value.timeOff.find(item => item.id === id) ?? null
+    selectedTimeOff.value = timeOff.value.find(item => item.id === id) ?? null
     timeOffOpen.value = Boolean(selectedTimeOff.value)
   }
 }
 
-function onCreate({ column, minutes }: { column: GridColumn, minutes: number }) {
-  selection.value = { column: column.key, start: minutes, end: minutes + 30 }
-  chooser.value = { date: column.date, time: fromMinutes(minutes), userId: column.userId }
-}
+// A click picks the highlighted 30 minutes, a drag the dragged range; a range ending at 24:00 ends the next day at 00:00
 function onSelect({ column, start, end }: { column: GridColumn, start: number, end: number }) {
   selection.value = { column: column.key, start, end }
   const to = splitDateTime(joinDateTime(column.date, end))
   chooser.value = { date: column.date, time: fromMinutes(start), userId: column.userId, endDate: to.date, endTime: fromMinutes(to.minutes) }
+}
+function onCreate({ column, minutes }: { column: GridColumn, minutes: number }) {
+  onSelect({ column, start: minutes, end: minutes + 30 })
 }
 function onMonthCreate(day: string) {
   monthSelection.value = { from: day, to: day }
@@ -375,24 +387,52 @@ function onMonthSelect({ from, to }: { from: string, to: string }) {
 const timeGrid = useTemplateRef<{ revert: (group: string, restore: () => void) => Promise<void> }>('timeGrid')
 const monthGrid = useTemplateRef<{ revert: (group: string, restore: () => void) => Promise<void> }>('monthGrid')
 
-async function commit<T extends object>(group: string, item: T, changes: Partial<T>, request: () => Promise<unknown>, title: string) {
-  const before = { ...item }
-  Object.assign(item, changes)
+// Saved drops: the request id that was current when the server confirmed them. Any load that started later
+// contains the change, so once such a load is shown the override can go.
+const confirmed = new Map<string, number>()
+watch(applied, (id) => {
+  const next = new Map(overrides.value)
+  for (const [group, at] of confirmed) {
+    if (id > at && !pending.value.has(group)) {
+      next.delete(group)
+      confirmed.delete(group)
+    }
+  }
+  overrides.value = next
+})
+
+async function commit(group: string, changes: Partial<AdminBooking> & Partial<TimeOff>, request: () => Promise<unknown>, title: string) {
+  // A failed second drag goes back to where the first, already saved one put the item
+  const previous = overrides.value.get(group)
+  const previousAt = confirmed.get(group)
+  confirmed.delete(group)
+  overrides.value = new Map(overrides.value).set(group, { ...previous, ...changes })
   pending.value = new Set(pending.value).add(group)
   try {
     await request()
+    confirmed.set(group, requestId.value)
   } catch (e) {
     const restore = () => {
-      Object.assign(item, before)
+      const next = new Map(overrides.value)
+      if (previous) next.set(group, previous)
+      else next.delete(group)
+      overrides.value = next
+      if (previousAt !== undefined) confirmed.set(group, previousAt)
     }
     const grid = view.value === 'month' ? monthGrid.value : timeGrid.value
     await (grid ? grid.revert(group, restore) : restore())
     toast.add({ title, description: apiErrorMessage(e), icon: 'i-lucide-circle-alert', color: 'error' })
-    reload().catch(() => {})
   } finally {
     const next = new Set(pending.value)
     next.delete(group)
     pending.value = next
+  }
+  // One refresh once every drop has its answer
+  if (pending.value.size) return
+  try {
+    await reload()
+  } catch (e) {
+    toast.add({ title: 'Could not refresh the calendar', description: apiErrorMessage(e), icon: 'i-lucide-triangle-alert', color: 'warning' })
   }
 }
 
@@ -402,35 +442,35 @@ function onInvalid(message: string) {
 
 function onMove({ event, column, minutes }: { event: GridEvent, column: GridColumn, minutes: number }) {
   if (event.kind === 'booking') {
-    const booking = data.value.bookings.find(item => item.id === event.id)
+    const booking = bookings.value.find(item => item.id === event.id)
     if (!booking) return
     const target = { date: column.date, time: fromMinutes(minutes), ...(column.userId && column.userId !== booking.userId ? { userId: column.userId } : {}) }
-    return commit(event.group, booking, target, () => moveBooking(booking.id, target), 'Could not move the booking')
+    return commit(event.group, target, () => moveBooking(booking.id, target, { reload: false }), 'Could not move the booking')
   }
-  const item = data.value.timeOff.find(entry => entry.id === event.id)
+  const item = timeOff.value.find(entry => entry.id === event.id)
   if (!item) return
   const changes = movedTimeOff(item, event, column, minutes)
-  return commit(event.group, item, changes, () => saveTimeOff({ ...item, ...changes }), 'Could not move the unavailability')
+  return commit(event.group, changes, () => saveTimeOff({ ...item, ...changes }, { reload: false }), 'Could not move the unavailability')
 }
 
 function onResize({ event, start, end }: { event: GridEvent, start: number, end: number }) {
-  const item = data.value.timeOff.find(entry => entry.id === event.id)
+  const item = timeOff.value.find(entry => entry.id === event.id)
   if (!item) return
   const changes = resizedTimeOff(item, event, start, end)
   if (changes.to <= changes.from) return
-  return commit(event.group, item, changes, () => saveTimeOff({ ...item, ...changes }), 'Could not resize the unavailability')
+  return commit(event.group, changes, () => saveTimeOff({ ...item, ...changes }, { reload: false }), 'Could not resize the unavailability')
 }
 
 function onMonthMove({ item, date: target, days }: { item: MonthItem, date: string, days: number }) {
   if (item.kind === 'booking') {
-    const booking = data.value.bookings.find(entry => entry.id === item.id)
+    const booking = bookings.value.find(entry => entry.id === item.id)
     if (!booking) return
-    return commit(item.group, booking, { date: target }, () => moveBooking(booking.id, { date: target, time: booking.time }), 'Could not move the booking')
+    return commit(item.group, { date: target }, () => moveBooking(booking.id, { date: target, time: booking.time }, { reload: false }), 'Could not move the booking')
   }
-  const entry = data.value.timeOff.find(value => value.id === item.id)
+  const entry = timeOff.value.find(value => value.id === item.id)
   if (!entry) return
   const changes = { from: shiftDateTime(entry.from, days * DAY_MINUTES), to: shiftDateTime(entry.to, days * DAY_MINUTES) }
-  return commit(item.group, entry, changes, () => saveTimeOff({ ...entry, ...changes }), 'Could not move the unavailability')
+  return commit(item.group, changes, () => saveTimeOff({ ...entry, ...changes }, { reload: false }), 'Could not move the unavailability')
 }
 
 function openDay(day: string) {
