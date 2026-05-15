@@ -42,6 +42,8 @@ model User {
   password  String
   role      String   @default("user")
   active    Boolean  @default(true)
+  // Bumped to sign the user out everywhere (sessions store the version they were created with)
+  sessionVersion Int @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

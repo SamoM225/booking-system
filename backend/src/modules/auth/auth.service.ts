@@ -12,6 +12,7 @@ export async function getUser(data: { email: string }) {
             password: true,
             role: true,
             active: true,
+            sessionVersion: true,
         }
     })
 }
@@ -34,11 +35,4 @@ export function logout(req: Request, res: Response) {
         res.clearCookie('connect.sid');
         res.json({ message: "Logged out successfully" });
     });
-}
-
-export async function getCurrentUser(id: string) {
-    return await prisma.user.findUnique({
-        where: { id },
-        select: { id: true, email: true, name: true, role: true, active: true }
-    })
 }
