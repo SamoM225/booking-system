@@ -142,11 +142,47 @@ describe('invitations', () => {
         assert.equal((await client(server.url).get(`/invitations/${first}`)).status, 404);
     });
 
+    it('keeps one working link when the same invite is sent twice at once', async () => {
+        await Promise.all([invite(), invite()]);
+        const pending = await admin.get('/admin/team/invitations');
+        assert.equal(pending.body.length, 1);
+        const working = await Promise.all(outbox.map(mail => client(server.url).get(`/invitations/${tokenFrom(mail.text)}`)));
+        assert.equal(working.filter(res => res.status === 200).length, 1);
+    });
+
     it('can be revoked', async () => {
         const { res, token } = await invite();
         assert.equal((await admin.delete(`/admin/team/invitations/${res.body.id}`)).status, 200);
         assert.equal((await client(server.url).get(`/invitations/${token}`)).status, 404);
         assert.equal((await admin.delete(`/admin/team/invitations/${res.body.id}`)).status, 404);
+    });
+
+    it('signs out every older session of a promoted account', async () => {
+        // Someone registers the address before the real owner is invited and stays signed in
+        const squatter = client(server.url);
+        assert.equal((await squatter.post('/auth/register', { name: 'Not Me', email: 'new.hire@example.com', password: 'squatter-pw' })).status, 201);
+        await squatter.login('new.hire@example.com', 'squatter-pw');
+        assert.equal((await squatter.get('/auth/me')).status, 200);
+
+        const { token } = await invite('New.Hire@example.com', 'New Hire', 'admin');
+        const owner = client(server.url);
+        assert.equal((await owner.post(`/invitations/${token}/accept`, { name: 'New Hire', password: 'owner-password' })).status, 201);
+
+        assert.equal((await squatter.get('/auth/me')).status, 401);
+        assert.equal((await squatter.get('/admin/team')).status, 403);
+        assert.equal((await squatter.get('/calendar?from=2030-01-07&to=2030-01-07')).status, 403);
+        assert.equal((await owner.get('/admin/team')).status, 200);
+    });
+
+    it('never touches an account whose e-mail only matches with wildcards', async () => {
+        // 'w_rker@test.local' is a different address than the existing 'worker@test.local'
+        const { token } = await invite('w_rker@test.local', 'Someone Else');
+        assert.equal((await client(server.url).get(`/invitations/${token}`)).body.hasAccount, false);
+        const accepted = await client(server.url).post(`/invitations/${token}/accept`, { name: 'Someone Else', password: 'someone-pw' });
+        assert.equal(accepted.status, 201);
+        assert.equal(accepted.body.user.email, 'w_rker@test.local');
+        // The worker keeps their account and password
+        assert.equal((await client(server.url).login('worker@test.local')).status, 200);
     });
 
     it('promotes an existing customer account and sets the new password', async () => {
