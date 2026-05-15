@@ -3,6 +3,9 @@ import { formatDayShort } from '~/utils/calendar'
 
 const emptyData = (): CalendarData => ({ members: [], services: [], schedules: {}, bookings: [], timeOff: [], closures: [] })
 
+/** `reload: false` leaves refreshing to the caller (drag & drop batches it until every drop is saved). */
+interface SaveOptions { reload?: boolean }
+
 /**
  * Calendar data and actions backed by /calendar. The backend scopes everything to the signed-in member:
  * admins see and manage the whole team, workers only themselves. Mutations throw on failure (use apiErrorMessage).
@@ -15,28 +18,35 @@ export function useCalendar() {
   const data = useState<CalendarData>('calendar-data', emptyData)
   const range = useState<{ from: string, to: string, userId?: string } | null>('calendar-range', () => null)
   const loading = useState('calendar-loading', () => false)
-  let request = 0
+  // Shared by every component using the calendar, so the newest request wins no matter who started it
+  const request = useState('calendar-request', () => 0)
+  // Id of the request whose data is shown (ids grow with every load that starts)
+  const applied = useState('calendar-applied', () => 0)
 
   function saved(title: string) {
     toast.add({ title, icon: 'i-lucide-circle-check', color: 'success' })
   }
 
+  /** Resolves to false when a newer request replaced this one, so its data was thrown away. */
   async function load(from: string, to: string, userId?: string) {
     range.value = { from, to, userId }
-    const current = ++request
+    const current = ++request.value
     loading.value = true
     try {
       const query = { from, to, ...(userId ? { userId } : {}) }
       const result = await api<CalendarData>('/calendar', { query })
       // A newer request (the user kept clicking) wins
-      if (current === request) data.value = result
+      if (current !== request.value) return false
+      data.value = result
+      applied.value = current
+      return true
     } finally {
-      if (current === request) loading.value = false
+      if (current === request.value) loading.value = false
     }
   }
 
   function reload() {
-    return range.value ? load(range.value.from, range.value.to, range.value.userId) : Promise.resolve()
+    return range.value ? load(range.value.from, range.value.to, range.value.userId) : Promise.resolve(false)
   }
 
   /** Keep the admin pages (bookings table, overview) in sync without a full reload. */
@@ -53,11 +63,12 @@ export function useCalendar() {
     saved(id ? 'Booking updated' : 'Booking created')
   }
 
-  async function moveBooking(id: number, target: { date: string, time: string, userId?: string }) {
+  async function moveBooking(id: number, target: { date: string, time: string, userId?: string }, options: SaveOptions = {}) {
     const booking = await api<AdminBooking>(`/calendar/bookings/${id}/move`, { method: 'PATCH', body: target })
     syncAdmin(booking)
-    await reload()
     saved(`Booking moved to ${formatDayShort(booking.date)} at ${booking.time}`)
+    if (options.reload !== false) await reload()
+    return booking
   }
 
   async function removeBooking(id: number) {
@@ -67,10 +78,11 @@ export function useCalendar() {
     saved('Booking deleted')
   }
 
-  async function saveTimeOff({ id, ...body }: Omit<TimeOff, 'id'> & { id?: number }) {
-    await api<TimeOff>(id ? `/calendar/time-off/${id}` : '/calendar/time-off', { method: id ? 'PUT' : 'POST', body })
-    await reload()
+  async function saveTimeOff({ id, ...body }: Omit<TimeOff, 'id'> & { id?: number }, options: SaveOptions = {}) {
+    const timeOff = await api<TimeOff>(id ? `/calendar/time-off/${id}` : '/calendar/time-off', { method: id ? 'PUT' : 'POST', body })
     saved(id ? 'Unavailability updated' : 'Unavailability added')
+    if (options.reload !== false) await reload()
+    return timeOff
   }
 
   async function removeTimeOff(id: number) {
@@ -87,5 +99,5 @@ export function useCalendar() {
     return data.value.members.find(member => member.id === id)?.name ?? 'Unknown specialist'
   }
 
-  return { data, loading, load, reload, saveBooking, moveBooking, removeBooking, saveTimeOff, removeTimeOff, serviceOf, memberName }
+  return { data, loading, request, applied, load, reload, saveBooking, moveBooking, removeBooking, saveTimeOff, removeTimeOff, serviceOf, memberName }
 }

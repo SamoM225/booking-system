@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { TimeOff } from '~/types/admin'
 import { shiftDate } from '~/utils/admin'
-import { splitDateTime } from '~/utils/calendar'
+import { fromMinutes, joinDateTime, splitDateTime, toMinutes } from '~/utils/calendar'
 
 const open = defineModel<boolean>('open', { default: false })
 const props = defineProps<{
@@ -40,14 +40,15 @@ watch(open, (value) => {
   }
   const defaults = props.defaults
   const start = defaults?.time ?? '09:00'
-  const hour = Math.min(Number(start.slice(0, 2)) + 1, 23)
+  // Without a given end: one hour, which may run into the next day
+  const fallback = defaults?.date ? splitDateTime(joinDateTime(defaults.date, toMinutes(start) + 60)) : null
   draft.value = {
     userId: defaults?.userId ?? (isAdmin.value ? data.value.members.find(item => item.active)?.id : user.value?.id) ?? '',
     allDay: Boolean(defaults?.allDay),
     fromDate: defaults?.date ?? '',
     fromTime: start,
-    toDate: defaults?.endDate ?? defaults?.date ?? '',
-    toTime: defaults?.endTime ?? `${String(hour).padStart(2, '0')}:${start.slice(3, 5)}`,
+    toDate: defaults?.endDate ?? fallback?.date ?? '',
+    toTime: defaults?.endTime ?? (fallback ? fromMinutes(fallback.minutes) : '10:00'),
     reason: ''
   }
 })
@@ -139,7 +140,7 @@ async function remove() {
                 step="300"
                 required
                 aria-label="Start time"
-                class="w-28"
+                class="w-32 shrink-0"
               />
             </div>
           </UFormField>
@@ -162,7 +163,7 @@ async function remove() {
                 step="300"
                 required
                 aria-label="End time"
-                class="w-28"
+                class="w-32 shrink-0"
               />
             </div>
           </UFormField>
