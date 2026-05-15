@@ -5,6 +5,7 @@ import { config } from "../../config.js";
 import { HttpError } from "../../lib/http-error.js";
 import { escapeHtml, sendMail } from "../../lib/mailer.js";
 import type { InviteMemberInput } from "../administration/team/team.schema.js";
+import { findUserIdByEmail } from "../users/users.service.js";
 import type { AcceptInvitationInput } from "./invitations.schema.js";
 
 export const INVITATION_TTL_DAYS = 7;
@@ -42,8 +43,9 @@ function toInvitationDto(invitation: InvitationRecord) {
     };
 }
 
-function findUserByEmail(email: string) {
-    return prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+async function findUserByEmail(email: string) {
+    const id = await findUserIdByEmail(email);
+    return id ? prisma.user.findUnique({ where: { id } }) : null;
 }
 
 export function invitationMail(input: { name: string, email: string, role: string, inviter: string | null, token: string, expiresAt: Date }) {
@@ -173,17 +175,23 @@ export async function acceptInvitation(token: string, data: AcceptInvitationInpu
         });
         if (claimed.count === 0) throw new HttpError(410, 'This invitation has already been used. Please sign in');
 
-        const existing = await tx.user.findFirst({ where: { email: { equals: invitation.email, mode: 'insensitive' } } });
+        const existingId = await findUserIdByEmail(invitation.email, tx);
+        const existing = existingId ? await tx.user.findUnique({ where: { id: existingId } }) : null;
         if (existing && TEAM_ROLES.includes(existing.role)) {
             throw new HttpError(409, 'This person is already a member of the team. Please sign in');
         }
 
-        // The link proves access to the mailbox, so an existing customer account is promoted and gets the new password
+        // The link proves access to the mailbox, so an existing customer account is promoted and gets the new password.
+        // Everyone signed in to that account until now is signed out: registration is not verified, so an old session
+        // may belong to someone who registered the address before the real owner was invited.
         const user = existing
-            ? await tx.user.update({ where: { id: existing.id }, data: { name: data.name, password, role: invitation.role, active: true } })
+            ? await tx.user.update({
+                where: { id: existing.id },
+                data: { name: data.name, password, role: invitation.role, active: true, sessionVersion: { increment: 1 } }
+            })
             : await tx.user.create({ data: { email: invitation.email, name: data.name, password, role: invitation.role } });
 
         await tx.invitation.deleteMany({ where: { email: invitation.email, acceptedAt: null } });
-        return { id: user.id, email: user.email, name: user.name, role: user.role };
+        return { id: user.id, email: user.email, name: user.name, role: user.role, sessionVersion: user.sessionVersion };
     });
 }
