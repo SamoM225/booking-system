@@ -81,16 +81,18 @@ export function invitationMail(input: { name: string, email: string, role: strin
     return { to: input.email, subject: 'You have been invited to the Booking team', text, html };
 }
 
-async function issueAndSend(invitation: { id: number, email: string, name: string, role: string }, inviterId: string | null) {
-    const token = newToken();
-    const expiresAt = expiry();
-    const updated = await prisma.invitation.update({
-        where: { id: invitation.id },
-        data: { tokenHash: hashToken(token), expiresAt, ...(inviterId ? { invitedById: inviterId } : {}) },
-        include: { invitedBy: { select: { name: true } } }
-    });
-    await sendMail(invitationMail({ ...invitation, inviter: updated.invitedBy?.name ?? null, token, expiresAt }));
-    return updated;
+async function inviterName(inviterId: string | null) {
+    if (!inviterId) return null;
+    return (await prisma.user.findUnique({ where: { id: inviterId }, select: { name: true } }))?.name ?? null;
+}
+
+async function send(mail: Parameters<typeof invitationMail>[0]) {
+    try {
+        await sendMail(invitationMail(mail));
+    } catch (error) {
+        console.error('Invitation e-mail failed', error);
+        throw new HttpError(502, 'The invitation e-mail could not be sent. Please try again later');
+    }
 }
 
 export async function listInvitations() {
@@ -108,19 +110,22 @@ export async function inviteMember(data: InviteMemberInput, inviterId: string | 
         throw new HttpError(409, 'This person is already a member of the team');
     }
 
-    // Inviting the same address again replaces the previous pending invitation (its link stops working)
-    await prisma.invitation.deleteMany({ where: { email: data.email, acceptedAt: null } });
+    const token = newToken();
     const invitation = await prisma.invitation.create({
-        data: { email: data.email, name: data.name, role: data.role, tokenHash: hashToken(newToken()), expiresAt: expiry(), invitedById: inviterId }
+        data: { email: data.email, name: data.name, role: data.role, tokenHash: hashToken(token), expiresAt: expiry(), invitedById: inviterId },
+        include: { invitedBy: { select: { name: true } } }
     });
-
     try {
-        return toInvitationDto(await issueAndSend(invitation, inviterId));
+        await send({ ...invitation, inviter: invitation.invitedBy?.name ?? null, token });
     } catch (error) {
         await prisma.invitation.delete({ where: { id: invitation.id } }).catch(() => {});
-        console.error('Invitation e-mail failed', error);
-        throw new HttpError(502, 'The invitation e-mail could not be sent. Please try again later');
+        throw error;
     }
+
+    // Only once the new e-mail is out, an earlier pending invitation of the same address stops working
+    // (only older ones: a second invite sent at the same moment keeps its own working link)
+    await prisma.invitation.deleteMany({ where: { email: data.email, acceptedAt: null, id: { lt: invitation.id } } });
+    return toInvitationDto(invitation);
 }
 
 export async function resendInvitation(id: number, inviterId: string | null) {
@@ -128,12 +133,21 @@ export async function resendInvitation(id: number, inviterId: string | null) {
     if (!invitation || invitation.acceptedAt) {
         throw new HttpError(404, 'Invitation not found');
     }
-    try {
-        return toInvitationDto(await issueAndSend(invitation, inviterId));
-    } catch (error) {
-        console.error('Invitation e-mail failed', error);
-        throw new HttpError(502, 'The invitation e-mail could not be sent. Please try again later');
+
+    // The old link keeps working if the new e-mail cannot be sent
+    const token = newToken();
+    const expiresAt = expiry();
+    await send({ ...invitation, inviter: await inviterName(inviterId ?? invitation.invitedById), token, expiresAt });
+    // Accepted or revoked while the e-mail was on its way: the new link stays unusable
+    const updated = await prisma.invitation.updateMany({
+        where: { id, acceptedAt: null },
+        data: { tokenHash: hashToken(token), expiresAt, ...(inviterId ? { invitedById: inviterId } : {}) }
+    });
+    if (updated.count === 0) {
+        throw new HttpError(404, 'Invitation not found');
     }
+    const invitationNow = await prisma.invitation.findUniqueOrThrow({ where: { id }, include: { invitedBy: { select: { name: true } } } });
+    return toInvitationDto(invitationNow);
 }
 
 export async function revokeInvitation(id: number) {
