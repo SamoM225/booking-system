@@ -2,7 +2,9 @@
 useSeoMeta({ title: 'Sign in', robots: 'noindex, nofollow' })
 
 const { login, user } = useAuth()
-const email = ref('')
+const route = useRoute()
+// Prefilled after accepting an invitation when the automatic sign-in did not work
+const email = ref(typeof route.query.email === 'string' ? route.query.email : '')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)

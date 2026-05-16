@@ -6,7 +6,7 @@ useSeoMeta({ title: 'Join the team', robots: 'noindex, nofollow' })
 
 const route = useRoute()
 const api = useApi()
-const { user, checked } = useAuth()
+const { user, checked, fetchUser } = useAuth()
 const token = String(route.params.token)
 
 const invitation = ref<AdminInvitation & { hasAccount: boolean } | null>(null)
@@ -19,6 +19,8 @@ const error = ref('')
 const saving = ref(false)
 
 onMounted(async () => {
+  // To warn when someone else is signed in on this browser
+  if (!checked.value) fetchUser()
   try {
     invitation.value = await api<AdminInvitation & { hasAccount: boolean }>(`/invitations/${encodeURIComponent(token)}`)
     name.value = invitation.value.name
@@ -29,8 +31,17 @@ onMounted(async () => {
   }
 })
 
+// A message about the previous attempt goes away as soon as the form changes
+watch([name, password, confirm], () => {
+  error.value = ''
+})
+
 async function submit() {
   error.value = ''
+  if (name.value.trim().length < 2) {
+    error.value = 'Enter your name (at least 2 characters).'
+    return
+  }
   if (password.value.length < 6) {
     error.value = 'Choose a password with at least 6 characters.'
     return
@@ -41,10 +52,15 @@ async function submit() {
   }
   saving.value = true
   try {
-    const result = await api<{ user: AuthUser }>(`/invitations/${encodeURIComponent(token)}/accept`, {
+    const result = await api<{ user: AuthUser, signedIn: boolean }>(`/invitations/${encodeURIComponent(token)}/accept`, {
       method: 'POST',
       body: { name: name.value.trim(), password: password.value }
     })
+    // The account exists; only the automatic sign-in did not work
+    if (!result.signedIn) {
+      await navigateTo({ path: '/login', query: { email: result.user.email } })
+      return
+    }
     // The backend signs the new member in right away
     user.value = result.user
     checked.value = true
@@ -93,8 +109,20 @@ async function submit() {
       <form
         v-else
         class="space-y-5"
+        novalidate
         @submit.prevent="submit"
       >
+        <!-- Lets password managers save the e-mail, not the name, as the login -->
+        <input
+          type="email"
+          name="username"
+          autocomplete="username"
+          :value="invitation.email"
+          class="sr-only"
+          tabindex="-1"
+          aria-hidden="true"
+          readonly
+        >
         <div>
           <p class="mb-2 text-xs font-semibold tracking-widest text-primary uppercase">
             You're invited
@@ -161,10 +189,18 @@ async function submit() {
           v-if="invitation.hasAccount"
           class="rounded-lg bg-elevated p-3 text-xs leading-5 text-muted"
         >
-          You already have an account with this e-mail. Accepting gives it team access and sets this new password.
+          You already have an account with this e-mail. Accepting gives it team access, sets this new password and signs it out on every other device.
         </p>
         <UAlert
+          v-if="user && user.email.toLowerCase() !== invitation.email"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-user-round-x"
+          :description="`You are signed in as ${user.name}. Accepting signs you in as ${invitation.email} instead.`"
+        />
+        <UAlert
           v-if="error"
+          role="alert"
           color="error"
           variant="subtle"
           :description="error"
