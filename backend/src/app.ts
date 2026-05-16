@@ -17,6 +17,7 @@ import { publicRouter } from './modules/public/public.routes.js';
 import { calendarRouter } from './modules/calendar/calendar.routes.js';
 import { invitationsRouter } from './modules/invitations/invitations.routes.js';
 import { HttpError } from './lib/http-error.js';
+import { currentUser } from './middleware/auth.js';
 
 export function createApp() {
     const app = express();
@@ -36,6 +37,7 @@ export function createApp() {
             maxAge: 24 * 60 * 60 * 1000 // 24 hours
         }
     }));
+    app.use(currentUser);
 
     app.get('/health', (req, res) => {
         res.json({ status: 'ok' })

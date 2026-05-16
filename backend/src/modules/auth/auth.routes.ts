@@ -1,30 +1,29 @@
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
-import { getCurrentUser, getUser, logout, registerUser } from './auth.service.js';
-import { prisma } from '../../db/prisma.js';
+import { getUser, logout, registerUser } from './auth.service.js';
 import { validateBody } from '../../middleware/body-middleware.js';
+import { signIn, userOf } from '../../middleware/auth.js';
 import { createUserSchema } from '../users/users.schema.js';
 
 export const authRouter = Router();
 
 authRouter.post('/login', async (req, res) => {
-    const user: any = await getUser({ email: req.body.email });
-    
-    if(!user || !user.active || !(await bcrypt.compare(req.body.password, user.password))) {
+    const user = await getUser({ email: req.body.email });
+
+    if(!user || !user.active || !(await bcrypt.compare(String(req.body.password ?? ''), user.password))) {
         return res.status(401).json({ message: "Invalid email or password" });
     }
 
-    req.session.userId = user.id;
-    req.session.role = user.role;
+    await signIn(req, user);
 
     res.json({ message: "Login successful", user: { id: user.id, email: user.email, name: user.name, role: user.role } });
 })
 
-// Current session user, FE uses it after refresh
+// Current session user, FE uses it after refresh (loaded by the currentUser middleware)
 authRouter.get('/me', async (req, res) => {
-    const user = req.session.userId ? await getCurrentUser(req.session.userId) : null;
+    const user = userOf(res);
 
-    if(!user || !user.active) {
+    if(!user) {
         return res.status(401).json({ message: "Unauthorized" });
     }
 

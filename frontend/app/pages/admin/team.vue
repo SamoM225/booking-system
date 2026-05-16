@@ -7,16 +7,28 @@ const search = ref('')
 const open = ref(false)
 const error = ref('')
 const draft = ref<AdminMember>({ id: '', name: '', email: '', role: 'worker', active: true })
+const todayCount = (id: string) => data.value.bookings.filter(item => item.userId === id && item.date === data.value.today && item.status !== 'cancelled').length
 const members = computed(() => data.value.members.filter(item => `${item.name} ${item.email}`.toLowerCase().includes(search.value.trim().toLowerCase())))
 function edit(member?: AdminMember) {
   draft.value = member ? { ...member } : { id: '', name: '', email: '', role: 'worker', active: true }
   error.value = ''
   open.value = true
 }
+// Sending can take a moment; a second click must not send a second invitation
+const sending = ref(false)
 async function submit() {
+  if (sending.value) return
   const value = { ...draft.value, name: draft.value.name.trim(), email: draft.value.email.trim().toLowerCase() }
-  if (!value.name || data.value.members.some(item => item.id !== value.id && item.email.toLowerCase() === value.email)) {
-    error.value = 'Enter a name and a unique email address.'
+  if (!value.name) {
+    error.value = 'Enter a name.'
+    return
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.email)) {
+    error.value = 'Enter a valid e-mail address.'
+    return
+  }
+  if (data.value.members.some(item => item.id !== value.id && item.email.toLowerCase() === value.email)) {
+    error.value = value.id ? 'Another team member already uses this e-mail.' : 'This person is already a member of the team.'
     return
   }
   const original = data.value.members.find(item => item.id === value.id)
@@ -24,12 +36,15 @@ async function submit() {
     error.value = 'Keep at least one active administrator in the team.'
     return
   }
+  sending.value = true
   try {
     if (value.id) await saveMember(value)
     else await inviteMember({ name: value.name, email: value.email, role: value.role })
     open.value = false
   } catch (e) {
     error.value = apiErrorMessage(e)
+  } finally {
+    sending.value = false
   }
 }
 
@@ -124,7 +139,7 @@ async function revoke() {
               class="size-4 shrink-0"
             />{{ member.email }}
           </p><div class="mt-5 rounded-xl bg-elevated/60 p-3 text-sm">
-            <span class="font-semibold">{{ data.bookings.filter(item => item.userId === member.id && item.date === data.today && item.status !== 'cancelled').length }}</span><span class="ml-1 text-muted">appointments today</span>
+            <span class="font-semibold">{{ todayCount(member.id) }}</span><span class="ml-1 text-muted">{{ todayCount(member.id) === 1 ? 'appointment' : 'appointments' }} today</span>
           </div><div class="mt-4 flex flex-wrap justify-between gap-2">
             <UButton
               :to="{ path: '/admin/availability', query: { member: member.id } }"
@@ -254,6 +269,7 @@ async function revoke() {
       <template #body>
         <form
           class="space-y-5"
+          novalidate
           @submit.prevent="submit"
         >
           <UFormField
@@ -305,6 +321,7 @@ async function revoke() {
             /><UButton
               :label="draft.id ? 'Save team member' : 'Send invitation'"
               type="submit"
+              :loading="sending"
             />
           </div>
         </form>
