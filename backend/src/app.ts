@@ -9,7 +9,6 @@ import session from 'express-session';
 import { RedisStore } from 'connect-redis';
 import { redis } from './lib/redis.js';
 import { config } from './config.js';
-import { userRouter } from './modules/users/users.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { bookingRouter } from './modules/booking/booking.routes.js';
 import { adminRouter } from './modules/administration/admin.routes.js';
@@ -21,6 +20,9 @@ import { currentUser } from './middleware/auth.js';
 
 export function createApp() {
     const app = express();
+    // Behind Vercel (and the Nuxt proxy) requests arrive over plain HTTP; trust X-Forwarded-Proto
+    // so express-session sees HTTPS and sends the secure cookie in production.
+    app.set('trust proxy', 1);
     
 
     app.use(express.json());
@@ -43,7 +45,6 @@ export function createApp() {
         res.json({ status: 'ok' })
     });
 
-    app.use('/users', userRouter);
     app.use('/auth', authRouter);
     app.use('/bookings', bookingRouter);
     app.use('/admin', adminRouter);
