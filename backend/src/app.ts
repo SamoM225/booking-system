@@ -68,3 +68,7 @@ export function createApp() {
     return app;
 
 }
+
+// Vercel picks this file as the Express entry and needs a default export.
+// src/server.ts creates its own app and listens for local development.
+export default createApp();
