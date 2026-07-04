@@ -1,3 +1,4 @@
+/// <reference path="../../types/session.d.ts" />
 import { prisma } from '../../db/prisma.js';
 import type { Request, Response } from 'express';
 import { HttpError } from '../../lib/http-error.js';

@@ -1,3 +1,4 @@
+/// <reference path="../types/session.d.ts" />
 import type { Request, Response, NextFunction } from 'express';
 import { prisma } from '../db/prisma.js';
 

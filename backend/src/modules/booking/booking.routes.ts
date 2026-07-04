@@ -1,3 +1,4 @@
+/// <reference path="../../types/session.d.ts" />
 import { Router } from "express";
 import { prisma } from "../../db/prisma.js";
 import { validateBody } from "../../middleware/body-middleware.js";
