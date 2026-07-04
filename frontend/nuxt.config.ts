@@ -28,7 +28,9 @@ export default defineNuxtConfig({
   // (same origin), Nitro proxies it to the backend, so session cookies work without extra setup.
   runtimeConfig: {
     public: {
-      apiBase: 'http://127.0.0.1:3020'
+      apiBase: 'http://127.0.0.1:3020',
+      // Public demo: demo accounts on the login page and a notice in the admin (NUXT_PUBLIC_DEMO_MODE=true)
+      demoMode: false
     }
   },
 

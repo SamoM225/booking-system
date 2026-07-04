@@ -15,6 +15,7 @@ import { adminRouter } from './modules/administration/admin.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
 import { calendarRouter } from './modules/calendar/calendar.routes.js';
 import { invitationsRouter } from './modules/invitations/invitations.routes.js';
+import { cronRouter } from './modules/cron/cron.routes.js';
 import { HttpError } from './lib/http-error.js';
 import { currentUser } from './middleware/auth.js';
 
@@ -51,6 +52,7 @@ export function createApp() {
     app.use('/public', publicRouter);
     app.use('/calendar', calendarRouter);
     app.use('/invitations', invitationsRouter);
+    app.use('/cron', cronRouter);
 
     // Business rule errors (HttpError) and unique constraint violations as JSON
     app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {

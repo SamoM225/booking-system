@@ -1,6 +1,14 @@
 // Demo data so the booking flow has something to choose from: npm run db:seed (safe to run repeatedly)
 import bcrypt from 'bcrypt';
 import { prisma } from '../db/prisma.js';
+import { config } from '../config.js';
+import { resetDemo } from '../demo/reset.js';
+
+// Public demo (DEMO_MODE=true): rebuild the whole demo workspace instead, see src/demo
+if (config.demoMode) {
+    console.log('Demo workspace reset', await resetDemo());
+    process.exit(0);
+}
 
 const catalog = {
     Haircut: [

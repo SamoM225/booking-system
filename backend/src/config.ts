@@ -14,6 +14,10 @@ export const config = {
     redisUrl: required('REDIS_URL'),
     sessionSecret: required('SESSION_SECRET'),
     isProd: process.env.NODE_ENV === 'production',
+    // Public demo (booking.majercik.dev): demo accounts, nightly reset, no invitation e-mails. See src/demo
+    demoMode: process.env.DEMO_MODE === 'true',
+    // Vercel Cron sends it as a bearer token to /cron/reset-demo
+    cronSecret: process.env.CRON_SECRET || '',
     // Public URL of the frontend, used for links in e-mails (scripts/dev.mjs sets it to the dev port)
     appUrl: (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, ''),
     mail: {

@@ -1,6 +1,8 @@
 import { prisma } from "../../../db/prisma.js";
 import type { Prisma } from "../../../generated/prisma/client.js";
 import { HttpError } from "../../../lib/http-error.js";
+import { config } from "../../../config.js";
+import { isDemoAccount } from "../../../demo/demo-data.js";
 import type { UpdateMemberInput } from "./team.schema.js";
 
 const memberSelect = {
@@ -30,6 +32,11 @@ export async function updateMember(id: string, data: UpdateMemberInput) {
     const current = await prisma.user.findUnique({ where: { id } });
     if (!current) {
         throw new HttpError(404, 'User not found');
+    }
+
+    // Everyone signs in to the public demo with these accounts, so they must stay usable
+    if (config.demoMode && isDemoAccount(id) && (data.email !== current.email || data.role !== current.role || !data.active)) {
+        throw new HttpError(403, 'Demo accounts keep their e-mail, role and status so everyone can sign in');
     }
 
     const losesAdmin = current.role === 'admin' && current.active && (data.role !== 'admin' || !data.active);

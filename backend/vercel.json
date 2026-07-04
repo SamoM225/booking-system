@@ -11,5 +11,11 @@
         }
       ]
     }
+  ],
+  "crons": [
+    {
+      "path": "/cron/reset-demo",
+      "schedule": "0 2 * * *"
+    }
   ]
 }

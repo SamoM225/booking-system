@@ -7,6 +7,7 @@ const mounted = ref(false)
 const viewer = computed(() => mounted.value ? user.value : null)
 const isWorker = computed(() => viewer.value?.role === 'worker')
 const loadError = ref('')
+const { public: { demoMode } } = useRuntimeConfig()
 onMounted(async () => {
   mounted.value = true
   // Workers only have the calendar, which loads its own data from /calendar
@@ -144,6 +145,12 @@ useSeoMeta({ title: () => `${current.value} · Booking Admin` })
           />
         </div>
       </header>
+      <p
+        v-if="demoMode"
+        class="border-b border-primary/20 bg-primary/10 px-5 py-2 text-center text-xs font-medium text-primary sm:px-8"
+      >
+        Demo workspace – try anything you like, the data resets every night.
+      </p>
       <nav
         aria-label="Administration mobile"
         class="flex gap-1 overflow-x-auto border-b border-default bg-default px-4 py-3 lg:hidden"
