@@ -134,6 +134,7 @@ function signInAsDemo(demoEmail: string) {
           <UButton
             size="sm"
             variant="soft"
+            class="shrink-0"
             :disabled="loading"
             @click="signInAsDemo(account.email)"
           >
